@@ -103,7 +103,7 @@ public abstract class Recycler<T> {
         INITIAL_CAPACITY = min(DEFAULT_MAX_CAPACITY_PER_THREAD, 256);
     }
 
-    private final int maxCapacityPerThread;
+    private final int maxCapacityPerThread;//最大
     private final int maxSharedCapacityFactor;
     private final int ratioMask;
     private final int maxDelayedQueuesPerThread;
@@ -602,10 +602,11 @@ public abstract class Recycler<T> {
             if ((item.recycleId | item.lastRecycledId) != 0) {
                 throw new IllegalStateException("recycled already");
             }
-            item.recycleId = item.lastRecycledId = OWN_THREAD_ID;
 
+            item.recycleId = item.lastRecycledId = OWN_THREAD_ID;
             int size = this.size;
             if (size >= maxCapacity || dropHandle(item)) {
+                //dropHandle(item) 每8个handler回收7个
                 // Hit the maximum capacity or should drop - drop the possibly youngest object.
                 return;
             }
