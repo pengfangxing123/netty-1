@@ -305,9 +305,10 @@ public final class InternalThreadLocalMap extends UnpaddedInternalThreadLocalMap
     }
 
     private void expandIndexedVariableTableAndSet(int index, Object value) {
+       //index=5;
         Object[] oldArray = indexedVariables;
-        final int oldCapacity = oldArray.length;
-        int newCapacity = index;
+        final int oldCapacity = oldArray.length;//2
+        int newCapacity = index;//5
         newCapacity |= newCapacity >>>  1;
         newCapacity |= newCapacity >>>  2;
         newCapacity |= newCapacity >>>  4;

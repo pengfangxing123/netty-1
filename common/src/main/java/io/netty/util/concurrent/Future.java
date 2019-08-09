@@ -27,12 +27,14 @@ public interface Future<V> extends java.util.concurrent.Future<V> {
 
     /**
      * Returns {@code true} if and only if the I/O operation was completed
+     * 异步操作完成且正常终止
      * successfully.
      */
     boolean isSuccess();
 
     /**
      * returns {@code true} if and only if the operation can be cancelled via {@link #cancel(boolean)}.
+     * 异步操作是否可以取消
      */
     boolean isCancellable();
 
@@ -156,6 +158,7 @@ public interface Future<V> extends java.util.concurrent.Future<V> {
      *
      * As it is possible that a {@code null} value is used to mark the future as successful you also need to check
      * if the future is really done with {@link #isDone()} and not relay on the returned {@code null} value.
+     * 非阻塞地返回异步结果，如果尚未完成返回null
      */
     V getNow();
 

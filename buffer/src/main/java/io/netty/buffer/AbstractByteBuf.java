@@ -66,11 +66,33 @@ public abstract class AbstractByteBuf extends ByteBuf {
 
     static final ResourceLeakDetector<ByteBuf> leakDetector =
             ResourceLeakDetectorFactory.instance().newResourceLeakDetector(ByteBuf.class);
-
+    //读位置
     int readerIndex;
+    //写入位置
     int writerIndex;
+    /**
+     * {@link #readerIndex} 的标记，好像是给get系列方法用，get系列方法不会改变readerIndex的值
+     * 标记和重置读位置
+     * @Override
+     * public ByteBuf markReaderIndex() {
+     *     markedReaderIndex = readerIndex;
+     *     return this;
+     * }
+     *
+     * @Override
+     * public ByteBuf resetReaderIndex() {
+     *     readerIndex(markedReaderIndex);
+     *     return this;
+     * }
+     */
     private int markedReaderIndex;
+    /**
+     * {@link #writerIndex} 的标记，好像是给get系列方法用，get系列方法不会改变writerIndex的值
+     */
     private int markedWriterIndex;
+    /**
+     * 最大容量
+     */
     private int maxCapacity;
 
     protected AbstractByteBuf(int maxCapacity) {
@@ -276,12 +298,16 @@ public abstract class AbstractByteBuf extends ByteBuf {
     }
 
     final void ensureWritable0(int minWritableBytes) {
+        // 检查是否可访问
         ensureAccessible();
+        // 目前容量可写，直接返回
         if (minWritableBytes <= writableBytes()) {
             return;
         }
         final int writerIndex = writerIndex();
+
         if (checkBounds) {
+            // 超过最大上限，抛出 IndexOutOfBoundsException 异常
             if (minWritableBytes > maxCapacity - writerIndex) {
                 throw new IndexOutOfBoundsException(String.format(
                         "writerIndex(%d) + minWritableBytes(%d) exceeds maxCapacity(%d): %s",
@@ -290,7 +316,9 @@ public abstract class AbstractByteBuf extends ByteBuf {
         }
 
         // Normalize the current capacity to the power of 2.
+        //计算新的容量
         int minNewCapacity = writerIndex + minWritableBytes;
+        //注意，此处仅仅是计算，并没有扩容内存复制等等操作。
         int newCapacity = alloc().calculateNewCapacity(minNewCapacity, maxCapacity);
 
         int fastCapacity = writerIndex + maxFastWritableBytes();

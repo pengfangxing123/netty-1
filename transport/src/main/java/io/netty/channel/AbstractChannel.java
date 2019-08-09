@@ -679,11 +679,14 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
 
         private void close(final ChannelPromise promise, final Throwable cause,
                            final ClosedChannelException closeCause, final boolean notify) {
+            // 设置 Promise 不可取消
             if (!promise.setUncancellable()) {
                 return;
             }
 
+            //若关闭已经标记为初始化
             if (closeInitiated) {
+               //表示关闭已经标记为初始化，此时可能已经关闭完成。
                 if (closeFuture.isDone()) {
                     // Closed already.
                     safeSetSuccess(promise);
@@ -704,6 +707,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
             final boolean wasActive = isActive();
             final ChannelOutboundBuffer outboundBuffer = this.outboundBuffer;
             this.outboundBuffer = null; // Disallow adding any messages and flushes to outboundBuffer.
+            // 执行准备关闭
             Executor closeExecutor = prepareToClose();
             if (closeExecutor != null) {
                 closeExecutor.execute(new Runnable() {
@@ -795,12 +799,12 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
                 return;
             }
 
-            // As a user may call deregister() from within any method while doing processing in the ChannelPipeline,
-            // we need to ensure we do the actual deregister operation later. This is needed as for example,
-            // we may be in the ByteToMessageDecoder.callDecode(...) method and so still try to do processing in
-            // the old EventLoop while the user already registered the Channel to a new EventLoop. Without delay,
-            // the deregister operation this could lead to have a handler invoked by different EventLoop and so
-            // threads.
+//             As a user may call deregister() from within any method while doing processing in the ChannelPipeline,
+//             we need to ensure we do the actual deregister operation later. This is needed as for example,
+//             we may be in the ByteToMessageDecoder.callDecode(...) method and so still try to do processing in
+//             the old EventLoop while the user already registered the Channel to a new EventLoop. Without delay,
+//             the deregister operation this could lead to have a handler invoked by different EventLoop and so
+//             threads.
             //
             // See:
             // https://github.com/netty/netty/issues/4435

@@ -31,7 +31,7 @@ import java.util.concurrent.atomic.AtomicReference;
 public class SingleThreadEventExecutorTest {
 
     @Test
-    public void testWrappedExecutorIsShutdown() {
+    public void testWrappedExecutorIsShutdown() throws InterruptedException {
         ExecutorService executorService = Executors.newSingleThreadExecutor();
 
         SingleThreadEventExecutor executor = new SingleThreadEventExecutor(null, executorService, false) {
@@ -49,6 +49,7 @@ public class SingleThreadEventExecutorTest {
         executorService.shutdownNow();
         executeShouldFail(executor);
         executeShouldFail(executor);
+        Thread.sleep(10000000);
         try {
             executor.shutdownGracefully().syncUninterruptibly();
             Assert.fail();
@@ -56,6 +57,7 @@ public class SingleThreadEventExecutorTest {
             // expected
         }
         Assert.assertTrue(executor.isShutdown());
+
     }
 
     private static void executeShouldFail(Executor executor) {
@@ -63,7 +65,7 @@ public class SingleThreadEventExecutorTest {
             executor.execute(new Runnable() {
                 @Override
                 public void run() {
-                    // Noop.
+                    System.out.println("##########################");
                 }
             });
             Assert.fail();

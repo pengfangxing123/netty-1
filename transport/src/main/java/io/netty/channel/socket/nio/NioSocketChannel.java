@@ -374,19 +374,29 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
 
     @Override
     protected void doWrite(ChannelOutboundBuffer in) throws Exception {
+        // 拿到NIO Socket
         SocketChannel ch = javaChannel();
+        // 获取自旋的次数，默认16
         int writeSpinCount = config().getWriteSpinCount();
         do {
             if (in.isEmpty()) {
                 // All written so clear OP_WRITE
+                //清除读感兴趣事件
                 clearOpWrite();
                 // Directly return here so incompleteWrite(...) is not called.
                 return;
             }
 
             // Ensure the pending writes are made of ByteBufs only.
+            //获取设置的每个 ByteBuf 的最大字节数，这个数字来自操作系统的 so_sndbuf 定义 Integer.MAX_VALUE
             int maxBytesPerGatheringWrite = ((NioSocketChannelConfig) config).getMaxBytesPerGatheringWrite();
+
+            // 将nioBuffers Entry的ByteBuf类型的msg，重新返回Nio的ByteBuffer实例，并返回ByteBuffer数组nioBuffers，
+            // 其实msg和ByteBuffer实例指向的是同一块内存，
+            // 因为在UnpooledDirectByteBuf实现类中，已经维护了ByteBuffer的实例。
             ByteBuffer[] nioBuffers = in.nioBuffers(1024, maxBytesPerGatheringWrite);
+
+            //NIO ByteBuffer 数组的数组大小
             int nioBufferCnt = in.nioBufferCount();
 
             // Always us nioBuffers() to workaround data-corruption.
@@ -394,6 +404,8 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
             switch (nioBufferCnt) {
                 case 0:
                     // We have something else beside ByteBuffers to write so fallback to normal writes.
+                    //翻译除了ByteBuffers之外，我们还有其他东西可以写回到正常写入。
+                    //应该是内部的数据为 FileRegion ，可以暂时无视
                     writeSpinCount -= doWrite0(in);
                     break;
                 case 1: {
@@ -402,7 +414,9 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
                     // to check if the total size of all the buffers is non-zero.
                     ByteBuffer buffer = nioBuffers[0];
                     int attemptedBytes = buffer.remaining();
+                    // 执行 NIO write 调用，写入单个 ByteBuffer 对象到对端，返回写入的字节数
                     final int localWrittenBytes = ch.write(buffer);
+                    // 写入字节小于等于 0 ，说明 NIO Channel 不可写，所以注册 SelectionKey.OP_WRITE ，等待 NIO Channel 可写，并返回以结束循环
                     if (localWrittenBytes <= 0) {
                         incompleteWrite(true);
                         return;
