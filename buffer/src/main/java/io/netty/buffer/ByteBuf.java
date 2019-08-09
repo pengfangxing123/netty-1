@@ -2171,6 +2171,8 @@ public abstract class ByteBuf implements ReferenceCounted, Comparable<ByteBuf> {
      */
     public abstract ByteBuf copy(int index, int length);
 
+
+    public abstract ByteBuf slice();
     /**
      * Returns a slice of this buffer's readable bytes. Modifying the content
      * of the returned buffer or this buffer affects each other's content
@@ -2182,8 +2184,6 @@ public abstract class ByteBuf implements ReferenceCounted, Comparable<ByteBuf> {
      * Also be aware that this method will NOT call {@link #retain()} and so the
      * reference count will NOT be increased.
      */
-    public abstract ByteBuf slice();
-
     /**
      * Returns a retained slice of this buffer's readable bytes. Modifying the content
      * of the returned buffer or this buffer affects each other's content
