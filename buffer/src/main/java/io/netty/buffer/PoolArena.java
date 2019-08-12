@@ -29,30 +29,92 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static io.netty.util.internal.ObjectUtil.checkPositiveOrZero;
 import static java.lang.Math.max;
 
+/**
+ * 抽象类
+ * 子类分为DirectArena 和HeapArena
+ * @param <T>
+ */
 abstract class PoolArena<T> implements PoolArenaMetric {
+    /**
+     * 是否支持 Unsafe 操作
+     */
     static final boolean HAS_UNSAFE = PlatformDependent.hasUnsafe();
 
+    /**
+     * 内存分类
+     */
     enum SizeClass {
         Tiny,
         Small,
         Normal
     }
 
+    /**
+     * {@link #tinySubpagePools} 数组的大小
+     *
+     * 默认为 32
+     */
     static final int numTinySubpagePools = 512 >>> 4;
 
+    /**
+     * 所属 PooledByteBufAllocator 对象
+     */
     final PooledByteBufAllocator parent;
 
+    /**
+     * 满二叉树的高度。默认为 11 。
+     */
     private final int maxOrder;
+
+    /**
+     * Page 大小，默认 8KB = 8192B
+     * 16MB/2048=8KB
+     */
     final int pageSize;
+
+    /**
+     * 从 1 开始左移到 {@link #pageSize} 的位数。默认 13 ，1 << 13 = 8192 。
+     */
     final int pageShifts;
+
+    /**
+     * Chunk 内存块占用大小。默认为 16M = 16 * 1024  。
+     */
     final int chunkSize;
+    /**
+     * 判断分配请求内存是否为 Tiny/Small ，即分配 Subpage 内存块。
+     *
+     * Used to determine if the requested capacity is equal to or greater than pageSize.
+     */
     final int subpageOverflowMask;
+    /**
+     * {@link #smallSubpagePools} 数组的大小
+     *
+     * 默认为 23
+     */
     final int numSmallSubpagePools;
+    /**
+     * 对齐基准
+     */
     final int directMemoryCacheAlignment;
+    /**
+     * {@link #directMemoryCacheAlignment} 掩码
+     */
     final int directMemoryCacheAlignmentMask;
+    /**
+     * tiny 类型的 PoolSubpage 数组
+     *
+     * 数组的每个元素，都是双向链表
+     */
     private final PoolSubpage<T>[] tinySubpagePools;
+    /**
+     * small 类型的 SubpagePools 数组
+     *
+     * 数组的每个元素，都是双向链表
+     */
     private final PoolSubpage<T>[] smallSubpagePools;
 
+    // PoolChunkList 之间的双向链表
     private final PoolChunkList<T> q050;
     private final PoolChunkList<T> q025;
     private final PoolChunkList<T> q000;
@@ -60,9 +122,15 @@ abstract class PoolArena<T> implements PoolArenaMetric {
     private final PoolChunkList<T> q075;
     private final PoolChunkList<T> q100;
 
+    /**
+     * PoolChunkListMetric 数组
+     */
     private final List<PoolChunkListMetric> chunkListMetrics;
 
     // Metrics for allocations and deallocations
+    /**
+     * 分配 Normal 内存块的次数
+     */
     private long allocationsNormal;
     // We need to use the LongCounter here as this is not guarded via synchronized block.
     private final LongCounter allocationsTiny = PlatformDependent.newLongCounter();
@@ -78,6 +146,9 @@ abstract class PoolArena<T> implements PoolArenaMetric {
     private final LongCounter deallocationsHuge = PlatformDependent.newLongCounter();
 
     // Number of thread caches backed by this arena.
+    /**
+     * 该 PoolArena 被多少线程引用的计数器
+     */
     final AtomicInteger numThreadCaches = new AtomicInteger();
 
     // TODO: Test if adding padding helps under contention
@@ -173,6 +244,7 @@ abstract class PoolArena<T> implements PoolArenaMetric {
     }
 
     private void allocate(PoolThreadCache cache, PooledByteBuf<T> buf, final int reqCapacity) {
+
         final int normCapacity = normalizeCapacity(reqCapacity);
         if (isTinyOrSmall(normCapacity)) { // capacity < pageSize
             int tableIdx;
