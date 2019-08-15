@@ -143,7 +143,10 @@ final class PoolChunk<T> implements PoolChunkMetric {
     /** Used to determine if the requested capacity is equal to or greater than pageSize. */
     /**
      * 判断分配请求内存是否为 Tiny/Small ，即分配 Subpage 内存块。
-     *
+     * 默认为-8192
+     * 对于 -8192 的二进制，除了首 bits 为 1 ，其它都为 0 。这样，对于小于 8K 字节的申请，
+     * 求 subpageOverflowMask & length 都等于 0 ；对于大于 8K 字节的申请，求 subpageOverflowMask & length 都不等于 0 。
+     * 相当于说，做了 if ( length < pageSize ) 的计算优化。
      * Used to determine if the requested capacity is equal to or greater than pageSize.
      */
     private final int subpageOverflowMask;
@@ -228,6 +231,7 @@ final class PoolChunk<T> implements PoolChunkMetric {
         this.offset = offset;
         unusable = (byte) (maxOrder + 1);
         log2ChunkSize = log2(chunkSize);
+        //取反加1等于减一再取反
         subpageOverflowMask = ~(pageSize - 1);
         freeBytes = chunkSize;
 
@@ -243,6 +247,7 @@ final class PoolChunk<T> implements PoolChunkMetric {
             int depth = 1 << d;
             for (int p = 0; p < depth; ++ p) {
                 // in each level traverse left to right and set value to the depth of subtree
+                //depthMap的值初始化后不再改变，memoryMap的值则随着节点分配而改变
                 memoryMap[memoryMapIndex] = (byte) d;
                 depthMap[memoryMapIndex] = (byte) d;
                 memoryMapIndex ++;
@@ -305,7 +310,7 @@ final class PoolChunk<T> implements PoolChunkMetric {
 
     boolean allocate(PooledByteBuf<T> buf, int reqCapacity, int normCapacity) {
         final long handle;
-        if ((normCapacity & subpageOverflowMask) != 0) { // >= pageSize
+        if ((normCapacity & subpageOverflowMask) != 0) { // >= pageSize 大于8kb
             handle =  allocateRun(normCapacity);
         } else {
             handle = allocateSubpage(normCapacity);
@@ -375,14 +380,18 @@ final class PoolChunk<T> implements PoolChunkMetric {
         int id = 1;
         int initial = - (1 << d); // has last d bits = 0 and rest all = 1
         byte val = value(id);
+        // 获得根节点的指值。
+        // 如果根节点的值，大于 d ，说明，第 d 层没有符合的节点，也就是说 [0, d-1] 层也没有符合的节点。即，当前 Chunk 没有符合的节点。
         if (val > d) { // unusable
             return -1;
         }
+        // val<d 子节点可满足需求
+        // id & initial == 0 高度<d
         while (val < d || (id & initial) == 0) { // id & initial == 1 << d for all ids at depth d, for < d it is 0
-            id <<= 1;
-            val = value(id);
-            if (val > d) {
-                id ^= 1;
+            id <<= 1;// 高度加1，进入子节点
+            val = value(id);// = memoryMap[id]
+            if (val > d) {// 左节点不满足
+                id ^= 1;// 右节点
                 val = value(id);
             }
         }
@@ -587,5 +596,9 @@ final class PoolChunk<T> implements PoolChunkMetric {
 
     void destroy() {
         arena.destroyChunk(this);
+    }
+
+    public static void main(String[] args) {
+        System.out.println(log2(16));
     }
 }

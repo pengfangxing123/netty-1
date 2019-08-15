@@ -213,14 +213,14 @@ abstract class PoolArena<T> implements PoolArenaMetric {
 
     abstract boolean isDirect();
 
+    static int tinyIdx(int normCapacity) {
+        return normCapacity >>> 4;
+    }
+
     PooledByteBuf<T> allocate(PoolThreadCache cache, int reqCapacity, int maxCapacity) {
         PooledByteBuf<T> buf = newByteBuf(maxCapacity);
         allocate(cache, buf, reqCapacity);
         return buf;
-    }
-
-    static int tinyIdx(int normCapacity) {
-        return normCapacity >>> 4;
     }
 
     static int smallIdx(int normCapacity) {
@@ -235,6 +235,7 @@ abstract class PoolArena<T> implements PoolArenaMetric {
 
     // capacity < pageSize
     boolean isTinyOrSmall(int normCapacity) {
+        //subpageOverflowMask为8k的负数，小于8K
         return (normCapacity & subpageOverflowMask) == 0;
     }
 

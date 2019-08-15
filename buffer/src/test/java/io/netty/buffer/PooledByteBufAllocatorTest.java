@@ -284,6 +284,21 @@ public class PooledByteBufAllocatorTest extends AbstractByteBufAllocatorTest<Poo
         testThreadCacheDestroyed(true);
     }
 
+    @Test
+    public void testpfx() throws InterruptedException {
+        int numArenas = 11;
+        final PooledByteBufAllocator allocator =
+                new PooledByteBufAllocator(numArenas, numArenas, 8192, 11);
+        allocator.newHeapBuffer(1024, 1024);
+    }
+    
+    @Test
+    public void test1(){
+        PooledByteBufAllocator allocator = PooledByteBufAllocator.DEFAULT;
+        ByteBuf buffer = allocator.buffer(1000);
+        System.out.println(buffer.alloc());
+    }
+
     private static void testThreadCacheDestroyed(boolean useRunnable) throws InterruptedException {
         int numArenas = 11;
         final PooledByteBufAllocator allocator =
