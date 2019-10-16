@@ -25,9 +25,18 @@ import java.nio.ByteBuffer;
  * Simplistic {@link ByteBufAllocator} implementation that does not pool anything.
  */
 public final class UnpooledByteBufAllocator extends AbstractByteBufAllocator implements ByteBufAllocatorMetricProvider {
-
+    /**
+     * 用于监控 ByteBuf 的 Heap 和 Direct 占用内存的情况
+     */
     private final UnpooledByteBufAllocatorMetric metric = new UnpooledByteBufAllocatorMetric();
+    /**
+     * 是否禁用内存泄露检测功能
+     */
     private final boolean disableLeakDetector;
+    /**
+     * 是否不使用 io.netty.util.internal.Cleaner 来释放 Direct ByteBuf
+     * 默认为true
+     */
     private final boolean noCleaner;
 
     /**

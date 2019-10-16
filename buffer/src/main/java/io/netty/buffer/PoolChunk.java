@@ -126,13 +126,13 @@ final class PoolChunk<T> implements PoolChunkMetric {
     final int offset;
     /**
      * 分配信息满二叉树
-     *
+     * 长度为 {@link #maxSubpageAllocs} *2
      * index 为节点编号
      */
     private final byte[] memoryMap;
     /**
      * 高度信息满二叉树
-     *
+     * 长度为 {@link #maxSubpageAllocs} *2
      * index 为节点编号
      */
     private final byte[] depthMap;
@@ -163,7 +163,6 @@ final class PoolChunk<T> implements PoolChunkMetric {
     private final int pageShifts;
     /**
      * 满二叉树的高度。默认为 11 。
-     *
      */
     private final int maxOrder;
     /**
@@ -230,6 +229,7 @@ final class PoolChunk<T> implements PoolChunkMetric {
         this.chunkSize = chunkSize;
         this.offset = offset;
         unusable = (byte) (maxOrder + 1);
+        //log2(16M)
         log2ChunkSize = log2(chunkSize);
         //取反加1等于减一再取反
         subpageOverflowMask = ~(pageSize - 1);
@@ -310,7 +310,8 @@ final class PoolChunk<T> implements PoolChunkMetric {
 
     boolean allocate(PooledByteBuf<T> buf, int reqCapacity, int normCapacity) {
         final long handle;
-        if ((normCapacity & subpageOverflowMask) != 0) { // >= pageSize 大于8kb
+        if ((normCapacity & subpageOverflowMask) != 0) {
+            // >= pageSize 大于8kb 分配page内存块
             handle =  allocateRun(normCapacity);
         } else {
             handle = allocateSubpage(normCapacity);
@@ -373,32 +374,40 @@ final class PoolChunk<T> implements PoolChunkMetric {
      * Algorithm to allocate an index in memoryMap when we query for a free node
      * at depth d
      *
-     * @param d depth
-     * @return index in memoryMap
+     * @param d depth 满足分配要求的深度比如8k就在11层，1w就在10层
+     * @return index in memoryMap 返回满足分配要求的节点在memoryMap的下标
      */
     private int allocateNode(int d) {
         int id = 1;
         int initial = - (1 << d); // has last d bits = 0 and rest all = 1
+        // 获得根节点的值。
         byte val = value(id);
-        // 获得根节点的指值。
         // 如果根节点的值，大于 d ，说明，第 d 层没有符合的节点，也就是说 [0, d-1] 层也没有符合的节点。即，当前 Chunk 没有符合的节点。
         if (val > d) { // unusable
             return -1;
         }
-        // val<d 子节点可满足需求
-        // id & initial == 0 高度<d
+        // <1> val<d 子节点可满足需求
+        // <2> id & initial 来保证，高度小于 d 会继续循环，因为不管如何满足要分配内存大小的page一定在d层，比如8K就一定在11层，16k就一定在10层
+        // 每一层的val值是会变化的，但是id，也就是每一层的下标值是不会变的，只要下标小于d层的下标，就能进入,
+        // 所以第<1>个的判断条件好像没什么用（自己去掉该判断条件，也能正常分配）；
         while (val < d || (id & initial) == 0) { // id & initial == 1 << d for all ids at depth d, for < d it is 0
-            id <<= 1;// 高度加1，进入子节点
+            // 高度加1，进入子节点
+            id <<= 1;
             val = value(id);// = memoryMap[id]
-            if (val > d) {// 左节点不满足
-                id ^= 1;// 右节点
+            if (val > d) {
+                // 上一
+                //
+                // 层的值是两个子节点的小值，左节点不满足，那么就是右节点满足
+                // 右节点,因为根节点是从1开始的，所以左节点都是2的次幂，^1久相当于左节点+1得到右节点
+                id ^= 1;
                 val = value(id);
             }
         }
         byte value = value(id);
         assert value == d && (id & initial) == 1 << d : String.format("val = %d, id & initial = %d, d = %d",
                 value, id & initial, d);
-        setValue(id, unusable); // mark as unusable
+        // mark as unusable
+        setValue(id, unusable);
         updateParentsAlloc(id);
         return id;
     }
@@ -493,11 +502,13 @@ final class PoolChunk<T> implements PoolChunkMetric {
         int memoryMapIdx = memoryMapIdx(handle);
         int bitmapIdx = bitmapIdx(handle);
         if (bitmapIdx == 0) {
+            //内存块为 Page
             byte val = value(memoryMapIdx);
             assert val == unusable : String.valueOf(val);
             buf.init(this, nioBuffer, handle, runOffset(memoryMapIdx) + offset,
                     reqCapacity, runLength(memoryMapIdx), arena.parent.threadCache());
         } else {
+            // 内存块为 SubPage
             initBufWithSubpage(buf, nioBuffer, handle, bitmapIdx, reqCapacity);
         }
     }
@@ -534,6 +545,11 @@ final class PoolChunk<T> implements PoolChunkMetric {
         return depthMap[id];
     }
 
+    /**
+     * 返回log2(val)
+     * @param val
+     * @return
+     */
     private static int log2(int val) {
         // compute the (0-based, with lsb = 0) position of highest set bit i.e, log2
         return INTEGER_SIZE_MINUS_ONE - Integer.numberOfLeadingZeros(val);

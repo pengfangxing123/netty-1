@@ -90,7 +90,7 @@ abstract class PoolArena<T> implements PoolArenaMetric {
     /**
      * {@link #smallSubpagePools} 数组的大小
      *
-     * 默认为 23
+     * 默认为 4
      */
     final int numSmallSubpagePools;
     /**
@@ -105,6 +105,8 @@ abstract class PoolArena<T> implements PoolArenaMetric {
      * tiny 类型的 PoolSubpage 数组
      *
      * 数组的每个元素，都是双向链表
+     *
+     * 长度为32
      */
     private final PoolSubpage<T>[] tinySubpagePools;
     /**

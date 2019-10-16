@@ -284,19 +284,38 @@ public class PooledByteBufAllocatorTest extends AbstractByteBufAllocatorTest<Poo
         testThreadCacheDestroyed(true);
     }
 
+    /**
+     * 小于8k内存分配测试类
+     * @throws InterruptedException
+     */
     @Test
     public void testpfx() throws InterruptedException {
         int numArenas = 11;
         final PooledByteBufAllocator allocator =
                 new PooledByteBufAllocator(numArenas, numArenas, 8192, 11);
-        allocator.newHeapBuffer(1024, 1024);
+        allocator.newHeapBuffer(16, 1024);
+        for(int i=0;i<70;i++){
+            allocator.newHeapBuffer(16, 1024);
+        }
+
     }
-    
+
+    /**
+     * 大于8k内存分配测试类
+     */
     @Test
     public void test1(){
         PooledByteBufAllocator allocator = PooledByteBufAllocator.DEFAULT;
-        ByteBuf buffer = allocator.buffer(1000);
-        System.out.println(buffer.alloc());
+        ByteBuf buffer1 = allocator.buffer(1024*1024*2);
+        ByteBuf buffer2 = allocator.buffer(1024*1024*2);
+        ByteBuf buffer3 = allocator.buffer(1024*1024*2);
+        ByteBuf buffer4 = allocator.buffer(1024*1024*2);
+        ByteBuf buffer5 = allocator.buffer(1024*1024*4);
+        ByteBuf buffer6 = allocator.buffer(1024*1024*2);
+        ByteBuf buffer7 = allocator.buffer(1024*1024*2);
+        //这个一个是另外一个poolChunk
+        ByteBuf buffer8 = allocator.buffer(1024*1024*2);
+        System.out.println(buffer1.alloc());
     }
 
     private static void testThreadCacheDestroyed(boolean useRunnable) throws InterruptedException {
@@ -489,6 +508,14 @@ public class PooledByteBufAllocatorTest extends AbstractByteBufAllocatorTest<Poo
                 t.joinAndCheckForError();
             }
         }
+    }
+
+    @Test
+    public void testEqual(){
+        PooledByteBufAllocator aDefault = PooledByteBufAllocator.DEFAULT;
+        PooledByteBufAllocator bDeault = PooledByteBufAllocator.DEFAULT;
+        PooledByteBufAllocator my = new PooledByteBufAllocator();
+        System.out.println(aDefault.equals(bDeault));
     }
 
     private static boolean isExpired(long start, long expireTime) {

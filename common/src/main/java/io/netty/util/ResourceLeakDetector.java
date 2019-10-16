@@ -289,7 +289,8 @@ public class ResourceLeakDetector<T> {
         }
 
         if (level.ordinal() < Level.PARANOID.ordinal()) {
-            // 随机 低于PARANOID等级 是取1%来监测，概率为 1 / samplingInterval ，创建 DefaultResourceLeak 对象。默认情况下 samplingInterval = 128 ，约等于 1%
+            // 随机 低于PARANOID等级 是取1%来监测，概率为 1 / samplingInterval ，创建 DefaultResourceLeak 对象。
+            // 默认情况下 samplingInterval = 128 ，约等于 1%
             if ((PlatformDependent.threadLocalRandom().nextInt(samplingInterval)) == 0) {
                 // 汇报内存是否泄漏
                 reportLeak();
@@ -310,7 +311,7 @@ public class ResourceLeakDetector<T> {
             if (ref == null) {
                 break;
             }
-            // 清理，并返回是否内存泄露
+            // 清理
             ref.dispose();
         }
     }
