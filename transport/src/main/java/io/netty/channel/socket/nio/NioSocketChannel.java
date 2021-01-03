@@ -303,14 +303,17 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
 
     @Override
     protected boolean doConnect(SocketAddress remoteAddress, SocketAddress localAddress) throws Exception {
+        //如果localAddress 不为空
         if (localAddress != null) {
             doBind0(localAddress);
         }
 
         boolean success = false;
         try {
+            //连接 remoteAddress
             boolean connected = SocketUtils.connect(javaChannel(), remoteAddress);
             if (!connected) {
+                //如果没有立即成功，注册SelectionKey.OP_CONNECT事件
                 selectionKey().interestOps(SelectionKey.OP_CONNECT);
             }
             success = true;
@@ -376,7 +379,7 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
     protected void doWrite(ChannelOutboundBuffer in) throws Exception {
         // 拿到NIO Socket
         SocketChannel ch = javaChannel();
-        // 获取自旋的次数，默认16
+        // 获取自旋写入次数，默认16
         int writeSpinCount = config().getWriteSpinCount();
         do {
             if (in.isEmpty()) {
@@ -421,7 +424,9 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
                         incompleteWrite(true);
                         return;
                     }
+                    //调整每次写入的最大字节数
                     adjustMaxBytesPerGatheringWrite(attemptedBytes, localWrittenBytes, maxBytesPerGatheringWrite);
+                    // 从内存队列中，移除已经写入的数据( 消息 )
                     in.removeBytes(localWrittenBytes);
                     --writeSpinCount;
                     break;
@@ -445,7 +450,8 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
                 }
             }
         } while (writeSpinCount > 0);
-
+        //上面writeSpinCount自旋次数达到16次，还没结束(就是没有出现localWrittenBytes <= 0的情况)，
+        //writeSpinCount==0 调用incompleteWrite(false)去提交一个调用flush0的任务，避免io线程一直在发送，而不处理其他事情
         incompleteWrite(writeSpinCount < 0);
     }
 
@@ -463,6 +469,11 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
                     // because we try to read or write until the actual close happens which may be later due
                     // SO_LINGER handling.
                     // See https://github.com/netty/netty/issues/4449
+                    //为什么要调用 #doDeregister() 方法呢？
+                    // 因为 SO_LINGER 大于 0 时，真正关闭 Channel ，需要阻塞直到延迟时间到或发送缓冲区中的数据发送完毕。
+                    // 如果不取消该 Channel 的 SelectionKey.OP_READ 事件的感兴趣，就会不断触发读事件，导致 CPU 空轮询。
+                    // 为什么呢?在 Channel 关闭时，会自动触发 SelectionKey.OP_READ 事件。而且，
+                    // 如果不进行取消 SelectionKey.OP_READ 事件的感兴趣，会不断不断不断的触发。
                     doDeregister();
                     return GlobalEventExecutor.INSTANCE;
                 }

@@ -29,6 +29,8 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
 /**
+ * 当一个写操作不能在指定时间内完成时，抛出 WriteTimeoutException 异常，并自动关闭对应 Channel 。
+ * 注意，这里写入，指的是 flush 到对端 Channel ，而不仅仅是写到 ChannelOutboundBuffer 队列。
  * Raises a {@link WriteTimeoutException} when a write operation cannot finish in a certain period of time.
  *
  * <pre>
@@ -63,15 +65,27 @@ import java.util.concurrent.TimeUnit;
  * @see IdleStateHandler
  */
 public class WriteTimeoutHandler extends ChannelOutboundHandlerAdapter {
+    /**
+     * 最小的超时时间，单位：纳秒
+     */
     private static final long MIN_TIMEOUT_NANOS = TimeUnit.MILLISECONDS.toNanos(1);
 
+    /**
+     * 超时时间，单位：纳秒
+     */
     private final long timeoutNanos;
 
     /**
+     * WriteTimeoutTask 双向链表
+     * lastTask 为链表的尾节点
+     *
      * A doubly-linked list to track all WriteTimeoutTasks
      */
     private WriteTimeoutTask lastTask;
 
+    /**
+     * Channel 是否关闭
+     */
     private boolean closed;
 
     /**
@@ -100,40 +114,60 @@ public class WriteTimeoutHandler extends ChannelOutboundHandlerAdapter {
         if (timeout <= 0) {
             timeoutNanos = 0;
         } else {
+            // 保证大于等于 MIN_TIMEOUT_NANOS
             timeoutNanos = Math.max(unit.toNanos(timeout), MIN_TIMEOUT_NANOS);
         }
     }
 
     @Override
     public void write(ChannelHandlerContext ctx, Object msg, ChannelPromise promise) throws Exception {
+        // 如果 promise 是 VoidPromise ，则包装成非 VoidPromise ，为了后续的回调
         if (timeoutNanos > 0) {
             promise = promise.unvoid();
+            // 创建定时任务
             scheduleTimeout(ctx, promise);
         }
+        // 写入
         ctx.write(msg, promise);
     }
 
+    /**
+     * 移除所有 WriteTimeoutTask 任务，并取消
+     * @param ctx
+     * @throws Exception
+     */
     @Override
     public void handlerRemoved(ChannelHandlerContext ctx) throws Exception {
         WriteTimeoutTask task = lastTask;
+        // 置空 lastTask
         lastTask = null;
+        // 循环移除，直到为空
         while (task != null) {
+            // 取消当前任务的定时任务
             task.scheduledFuture.cancel(false);
+            // 记录前一个任务
             WriteTimeoutTask prev = task.prev;
+            // 置空当前任务的前后节点
             task.prev = null;
             task.next = null;
+            // 跳到前一个任务
             task = prev;
         }
     }
 
     private void scheduleTimeout(final ChannelHandlerContext ctx, final ChannelPromise promise) {
         // Schedule a timeout.
+        // 创建 WriteTimeoutTask 任务
         final WriteTimeoutTask task = new WriteTimeoutTask(ctx, promise);
+        //提交定时任务
         task.scheduledFuture = ctx.executor().schedule(task, timeoutNanos, TimeUnit.NANOSECONDS);
 
+        //如果任务没有完成
         if (!task.scheduledFuture.isDone()) {
+            //把task加入到 WriteTimeoutTask 双向链表中
             addWriteTimeoutTask(task);
-
+            //给Promise提交一个listener 用来完成后取消任务
+            //promise是flush到对端后才trysuccess
             // Cancel the scheduled timeout if the flush promise is complete.
             promise.addListener(task);
         }
@@ -174,7 +208,9 @@ public class WriteTimeoutHandler extends ChannelOutboundHandlerAdapter {
      */
     protected void writeTimedOut(ChannelHandlerContext ctx) throws Exception {
         if (!closed) {
+            //触发异常事件
             ctx.fireExceptionCaught(WriteTimeoutException.INSTANCE);
+            //关闭channel
             ctx.close();
             closed = true;
         }
@@ -201,13 +237,16 @@ public class WriteTimeoutHandler extends ChannelOutboundHandlerAdapter {
             // Was not written yet so issue a write timeout
             // The promise itself will be failed with a ClosedChannelException once the close() was issued
             // See https://github.com/netty/netty/issues/2159
+            //如果超时时间到了，msg还没有被operationComplete取消，那么该任务会被执行
             if (!promise.isDone()) {
                 try {
+                    //触发写超时时间
                     writeTimedOut(ctx);
                 } catch (Throwable t) {
                     ctx.fireExceptionCaught(t);
                 }
             }
+            //从链表中移除
             removeWriteTimeoutTask(this);
         }
 

@@ -32,12 +32,15 @@ final class PooledDirectByteBuf extends PooledByteBuf<ByteBuffer> {
     private static final Recycler<PooledDirectByteBuf> RECYCLER = new Recycler<PooledDirectByteBuf>() {
         @Override
         protected PooledDirectByteBuf newObject(Handle<PooledDirectByteBuf> handle) {
+            // 真正创建 PooledDirectByteBuf 对象
             return new PooledDirectByteBuf(handle, 0);
         }
     };
 
     static PooledDirectByteBuf newInstance(int maxCapacity) {
+        // 从 Recycler 的对象池中获得 PooledDirectByteBuf 对象
         PooledDirectByteBuf buf = RECYCLER.get();
+        // 重置 PooledDirectByteBuf 的属性
         buf.reuse(maxCapacity);
         return buf;
     }
@@ -48,6 +51,7 @@ final class PooledDirectByteBuf extends PooledByteBuf<ByteBuffer> {
 
     @Override
     protected ByteBuffer newInternalNioBuffer(ByteBuffer memory) {
+        //调用 ByteBuffer#duplicate() 方法，复制一个 ByteBuffer 对象，共享里面的数据
         return memory.duplicate();
     }
 
@@ -110,9 +114,11 @@ final class PooledDirectByteBuf extends PooledByteBuf<ByteBuffer> {
     @Override
     public ByteBuf getBytes(int index, ByteBuf dst, int dstIndex, int length) {
         checkDstIndex(index, length, dstIndex, dst.capacity());
+        //如果目标dst基于堆内存
         if (dst.hasArray()) {
             getBytes(index, dst.array(), dst.arrayOffset() + dstIndex, length);
         } else if (dst.nioBufferCount() > 0) {
+            //如果转成的ByteBuffer数量大于0
             for (ByteBuffer bb: dst.nioBuffers(dstIndex, length)) {
                 int bbLen = bb.remaining();
                 getBytes(index, bb);
@@ -388,14 +394,28 @@ final class PooledDirectByteBuf extends PooledByteBuf<ByteBuffer> {
         }
     }
 
+    /**
+     * 复制指定范围的数据到新创建的 Direct ByteBuf 对象
+     * 深拷贝，没有底层数据共享
+     * @param index
+     * @param length
+     * @return
+     */
     @Override
     public ByteBuf copy(int index, int length) {
+        // 校验索引
         checkIndex(index, length);
+        // 创建一个 Direct ByteBuf 对象
         ByteBuf copy = alloc().directBuffer(length, maxCapacity());
+        // 写入数据
         copy.writeBytes(this, index, length);
         return copy;
     }
 
+    /**
+     * 返回 ByteBuf 包含 ByteBuffer 数量为 1
+     * @return
+     */
     @Override
     public int nioBufferCount() {
         return 1;
@@ -404,21 +424,38 @@ final class PooledDirectByteBuf extends PooledByteBuf<ByteBuffer> {
     @Override
     public ByteBuffer nioBuffer(int index, int length) {
         checkIndex(index, length);
+        // memory 中的开始位置
         index = idx(index);
+        // duplicate 复制一个 ByteBuffer 对象，共享数据
+        // position + limit 设置位置和大小限制
+        // slice 创建 [position, limit] 子缓冲区，共享数据
         return ((ByteBuffer) memory.duplicate().position(index).limit(index + length)).slice();
     }
 
     @Override
     public ByteBuffer[] nioBuffers(int index, int length) {
+        //返回数组，这里的实现长度为1 ，而且上面nioBufferCount()方法也是写死返回1
         return new ByteBuffer[] { nioBuffer(index, length) };
     }
 
+    /**
+     * 这个方法与nioBuffer(int index, int length) 的区别
+     * internalNioBuffer：是复制一个memory，然后根据 index调整position和 length调整limit ，其他不变
+     * nioBuffers：是复制一个memory，调用slice，复制只有可读的部分，position为0，limit和容量为index + length ，偏移量为index
+     * @param index
+     * @param length
+     * @return
+     */
     @Override
     public ByteBuffer internalNioBuffer(int index, int length) {
         checkIndex(index, length);
         index = idx(index);
+        //internalNioBuffer() ->newInternalNioBuffer(ByteBuffer memory) 就是复制一个对象
+        // clear 标记清空（不会清理数据）
+        // position + limit 设置位置和大小限制
         return (ByteBuffer) internalNioBuffer().clear().position(index).limit(index + length);
     }
+
 
     @Override
     public boolean hasArray() {

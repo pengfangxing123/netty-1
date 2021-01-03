@@ -15,6 +15,10 @@
  */
 package io.netty.util;
 
+/**
+ * 内存泄漏追踪器
+ * @param <T>
+ */
 public interface ResourceLeakTracker<T>  {
 
     /**

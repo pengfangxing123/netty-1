@@ -45,7 +45,14 @@ import io.netty.util.internal.TypeParameterMatcher;
  */
 public abstract class MessageToByteEncoder<I> extends ChannelOutboundHandlerAdapter {
 
+    /**
+     * 类型匹配器
+     */
     private final TypeParameterMatcher matcher;
+
+    /**
+     * 是否偏向使用 Direct 内存
+     */
     private final boolean preferDirect;
 
     /**
@@ -99,24 +106,35 @@ public abstract class MessageToByteEncoder<I> extends ChannelOutboundHandlerAdap
     public void write(ChannelHandlerContext ctx, Object msg, ChannelPromise promise) throws Exception {
         ByteBuf buf = null;
         try {
+            //判断类型是否匹配
             if (acceptOutboundMessage(msg)) {
+                //如果匹配
                 @SuppressWarnings("unchecked")
                 I cast = (I) msg;
+                //分配msg需要的内存
                 buf = allocateBuffer(ctx, cast, preferDirect);
                 try {
+                    //对msg进行编码
                     encode(ctx, cast, buf);
                 } finally {
+                    //尝试释放msg，如果不是ReferenceCounted的子类不需要释放
                     ReferenceCountUtil.release(cast);
                 }
 
+                // buf 可读，说明有编码到数据
                 if (buf.isReadable()) {
+                    // 写入 buf 到下一个节点
                     ctx.write(buf, promise);
                 } else {
+                    // 不可读，释放掉刚申请的 buf
                     buf.release();
+                    // 写入 EMPTY_BUFFER 到下一个节点，为了 promise 的回调
                     ctx.write(Unpooled.EMPTY_BUFFER, promise);
                 }
+                //去掉buf的引用
                 buf = null;
             } else {
+                //不匹配，传递事件
                 ctx.write(msg, promise);
             }
         } catch (EncoderException e) {

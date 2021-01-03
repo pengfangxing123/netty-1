@@ -18,6 +18,7 @@ package io.netty.handler.timeout;
 import io.netty.channel.ChannelException;
 
 /**
+ * 超时异常
  * A {@link TimeoutException} when no data was either read or written within a
  * certain period of time.
  */

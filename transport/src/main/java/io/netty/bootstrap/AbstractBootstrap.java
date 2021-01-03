@@ -81,10 +81,13 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
      */
     public B group(EventLoopGroup group) {
         ObjectUtil.checkNotNull(group, "group");
+        // 不允许重复设置
         if (this.group != null) {
             throw new IllegalStateException("group set already");
         }
+        //group 接受传入的group
         this.group = group;
+        //返回自身，方便链式调用
         return self();
     }
 
@@ -99,6 +102,8 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
      * {@link Channel} implementation has no no-args constructor.
      */
     public B channel(Class<? extends C> channelClass) {
+        //通过ReflectiveChannelFactory，获取channelClass的构造方法，并提供通过反射获取示例的方法
+        //实际上就是弄一个工厂类，赋值给channelFactory变量
         return channelFactory(new ReflectiveChannelFactory<C>(
                 ObjectUtil.checkNotNull(channelClass, "channelClass")
         ));
@@ -132,6 +137,7 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
 
     /**
      * The {@link SocketAddress} which is used to bind the local "end" to.
+     * 根据port，获取port和host构建一个InetSocketAddress，赋值给localAddress，用于channel的绑定，有下面四个重载方法
      */
     public B localAddress(SocketAddress localAddress) {
         this.localAddress = localAddress;
@@ -159,9 +165,12 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
         return localAddress(new InetSocketAddress(inetHost, inetPort));
     }
 
+
     /**
      * Allow to specify a {@link ChannelOption} which is used for the {@link Channel} instances once they got
      * created. Use a value of {@code null} to remove a previous set {@link ChannelOption}.
+     * 添加，或者删除options
+     * public 方法，一般是在创建好ServerBootstrap或者Bootstrap后调用添加 {@link ChannelOption}
      */
     public <T> B option(ChannelOption<T> option, T value) {
         ObjectUtil.checkNotNull(option, "option");
@@ -180,6 +189,9 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
     /**
      * Allow to specify an initial attribute of the newly created {@link Channel}.  If the {@code value} is
      * {@code null}, the attribute of the specified {@code key} is removed.
+     * 设置attrs
+     * 怎么理解 attrs 属性呢？我们可以理解成 java.nio.channels.SelectionKey 的 attachment 属性，并且类型为 Map
+     *
      */
     public <T> B attr(AttributeKey<T> key, T value) {
         ObjectUtil.checkNotNull(key, "key");
@@ -198,6 +210,7 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
     /**
      * Validate all the parameters. Sub-classes may override this, but should
      * call the super method in that case.
+     * 校验配置是否正确
      */
     public B validate() {
         if (group == null) {
@@ -268,12 +281,16 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
     }
 
     private ChannelFuture doBind(final SocketAddress localAddress) {
+        // 初始化并注册一个 Channel 对象，因为注册是异步的过程，所以返回一个 ChannelFuture 对象
         final ChannelFuture regFuture = initAndRegister();
+        //获取注册的channel，这个是netty的channel不是jdkchannel
         final Channel channel = regFuture.channel();
+        // 若发生异常，直接进行返回
         if (regFuture.cause() != null) {
             return regFuture;
         }
 
+        //判断注册
         if (regFuture.isDone()) {
             // At this point we know that the registration was complete and successful.
             ChannelPromise promise = channel.newPromise();
@@ -361,7 +378,8 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
     }
 
     /**
-     * the {@link ChannelHandler} to use for serving the requests.
+     * the {@link ChannelHandler} to use for serving the requests
+     * 设置当前 bootstrap的 handler.
      */
     public B handler(ChannelHandler handler) {
         this.handler = ObjectUtil.checkNotNull(handler, "handler");
@@ -369,6 +387,7 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
     }
 
     /**
+     * 返回当前的group ，已经过时
      * Returns the configured {@link EventLoopGroup} or {@code null} if non is configured yet.
      *
      * @deprecated Use {@link #config()} instead.
@@ -379,6 +398,8 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
     }
 
     /**
+     * 返回当前 AbstractBootstrap 的配置对象
+     * AbstractBootstrapConfig 持有一个Bootstrap的对象，获取Bootstrap的属性
      * Returns the {@link AbstractBootstrapConfig} object that can be used to obtain the current config
      * of the bootstrap.
      */
@@ -424,6 +445,8 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
         return copiedMap(attrs);
     }
 
+
+    //把设置在bootstrap上的option 遍历设置到channel的config中
     static void setChannelOptions(
             Channel channel, Map<ChannelOption<?>, Object> options, InternalLogger logger) {
         for (Map.Entry<ChannelOption<?>, Object> e: options.entrySet()) {

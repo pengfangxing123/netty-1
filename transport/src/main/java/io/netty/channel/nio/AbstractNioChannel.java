@@ -236,6 +236,9 @@ public abstract class AbstractNioChannel extends AbstractChannel {
         @Override
         public final void connect(
                 final SocketAddress remoteAddress, final SocketAddress localAddress, final ChannelPromise promise) {
+
+            //设置promise 的result为UNCANCELLABLE
+            //确认channel 是open的
             if (!promise.setUncancellable() || !ensureOpen(promise)) {
                 return;
             }
@@ -246,16 +249,23 @@ public abstract class AbstractNioChannel extends AbstractChannel {
                     throw new ConnectionPendingException();
                 }
 
+                //判断当前持有的jdk channel是否已经连接
                 boolean wasActive = isActive();
+                //执行连接
                 if (doConnect(remoteAddress, localAddress)) {
+                    //如果连接立即成功了(因为nio io事件都时异步过程)
                     fulfillConnectPromise(promise, wasActive);
                 } else {
+                    // 记录 connectPromise
                     connectPromise = promise;
+                    // 记录 requestedRemoteAddress
                     requestedRemoteAddress = remoteAddress;
 
                     // Schedule connect timeout.
+                    // 超时事件 默认 30 * 1000 毫秒
                     int connectTimeoutMillis = config().getConnectTimeoutMillis();
                     if (connectTimeoutMillis > 0) {
+                        // 使用 EventLoop 发起定时任务，监听连接远程地址超时。若连接超时，则回调通知 connectPromise 超时异常。
                         connectTimeoutFuture = eventLoop().schedule(new Runnable() {
                             @Override
                             public void run() {
@@ -269,6 +279,7 @@ public abstract class AbstractNioChannel extends AbstractChannel {
                         }, connectTimeoutMillis, TimeUnit.MILLISECONDS);
                     }
 
+                    // 添加监听器，监听连接远程地址取消。
                     promise.addListener(new ChannelFutureListener() {
                         @Override
                         public void operationComplete(ChannelFuture future) throws Exception {
@@ -296,17 +307,23 @@ public abstract class AbstractNioChannel extends AbstractChannel {
 
             // Get the state as trySuccess() may trigger an ChannelFutureListener that will close the Channel.
             // We still need to ensure we call fireChannelActive() in this case.
+            //判断当前是否已经连接了
             boolean active = isActive();
 
             // trySuccess() will return false if a user cancelled the connection attempt.
+            //修改promise状态
             boolean promiseSet = promise.trySuccess();
 
             // Regardless if the connection attempt was cancelled, channelActive() event should be triggered,
             // because what happened is what happened.
+            //如果上次没有连接，现在连接了->第一次连接
             if (!wasActive && active) {
+                //传递fireChannelActive事件
+                //在head中会传递事件，同时会注册OP_READ事件
                 pipeline().fireChannelActive();
             }
 
+            //如果用户取消了连接尝试，或者已经超时，然后关闭channelInactive（）
             // If a user cancelled the connection attempt, close the channel, which is followed by channelInactive().
             if (!promiseSet) {
                 close(voidPromise());
@@ -336,8 +353,10 @@ public abstract class AbstractNioChannel extends AbstractChannel {
                 doFinishConnect();
                 fulfillConnectPromise(connectPromise, wasActive);
             } catch (Throwable t) {
+                // 通知 connectPromise 连接异常
                 fulfillConnectPromise(connectPromise, annotateConnectException(t, requestedRemoteAddress));
             } finally {
+                // 取消 connectTimeoutFuture 任务
                 // Check for null as the connectTimeoutFuture is only created if a connectTimeoutMillis > 0 is used
                 // See https://github.com/netty/netty/issues/1770
                 if (connectTimeoutFuture != null) {

@@ -34,29 +34,51 @@ public class DefaultPromise<V> extends AbstractFuture<V> implements Promise<V> {
     private static final InternalLogger logger = InternalLoggerFactory.getInstance(DefaultPromise.class);
     private static final InternalLogger rejectedExecutionLogger =
             InternalLoggerFactory.getInstance(DefaultPromise.class.getName() + ".rejectedExecution");
+
+    /**
+     * 可以嵌套的Listener的最大层数，可见最大值为8
+     */
     private static final int MAX_LISTENER_STACK_DEPTH = Math.min(8,
             SystemPropertyUtil.getInt("io.netty.defaultPromise.maxListenerStackDepth", 8));
+    /**
+     * result字段由使用RESULT_UPDATER更新
+     */
     @SuppressWarnings("rawtypes")
     private static final AtomicReferenceFieldUpdater<DefaultPromise, Object> RESULT_UPDATER =
             AtomicReferenceFieldUpdater.newUpdater(DefaultPromise.class, Object.class, "result");
+
     private static final Object SUCCESS = new Object();
     private static final Object UNCANCELLABLE = new Object();
 
-    private volatile Object result;
-    private final EventExecutor executor;
     /**
+     * 异步操作结果
+     */
+    private volatile Object result;
+
+    /**
+     * 执行listener操作的执行器
+     */
+    private final EventExecutor executor;
+
+    /**
+     * 监听者
+     * 当只有一个listener时，该字段为一个GenericFutureListener对象；
+     * 当多余一个listener时，该字段为DefaultFutureListeners，可以储存多个listener
      * One or more listeners. Can be a {@link GenericFutureListener} or a {@link DefaultFutureListeners}.
      * If {@code null}, it means either 1) no listeners were added yet or 2) all listeners were notified.
      *
      * Threading - synchronized(this). We must support adding listeners when there is no EventExecutor.
      */
     private Object listeners;
+
     /**
+     * 阻塞等待该结果的线程数
      * Threading - synchronized(this). We are required to hold the monitor to use Java's underlying wait()/notifyAll().
      */
     private short waiters;
 
     /**
+     * 通知正在进行标识
      * Threading - synchronized(this). We must prevent concurrent notification and FIFO listener notification if the
      * executor changes.
      */

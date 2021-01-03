@@ -22,15 +22,18 @@ import io.netty.util.internal.StringUtil;
 import java.nio.ByteBuffer;
 
 /**
+ * 普通的 ByteBuf 的分配器，不基于内存池
  * Simplistic {@link ByteBufAllocator} implementation that does not pool anything.
  */
 public final class UnpooledByteBufAllocator extends AbstractByteBufAllocator implements ByteBufAllocatorMetricProvider {
     /**
+     * ByteBufAllocator Metric 提供者接口
      * 用于监控 ByteBuf 的 Heap 和 Direct 占用内存的情况
      */
     private final UnpooledByteBufAllocatorMetric metric = new UnpooledByteBufAllocatorMetric();
     /**
      * 是否禁用内存泄露检测功能
+     * 默认为false
      */
     private final boolean disableLeakDetector;
     /**
@@ -105,6 +108,12 @@ public final class UnpooledByteBufAllocator extends AbstractByteBufAllocator imp
         return disableLeakDetector ? buf : toLeakAwareBuffer(buf);
     }
 
+    /**
+     * 相比父类AbstractByteBufAllocator 的默认返回toLeakAwareBuffer包装
+     * 这里结合了 disableLeakDetector 属性
+     * @param maxNumComponents
+     * @return
+     */
     @Override
     public CompositeByteBuf compositeHeapBuffer(int maxNumComponents) {
         CompositeByteBuf buf = new CompositeByteBuf(this, false, maxNumComponents);
@@ -151,6 +160,7 @@ public final class UnpooledByteBufAllocator extends AbstractByteBufAllocator imp
         @Override
         protected byte[] allocateArray(int initialCapacity) {
             byte[] bytes = super.allocateArray(initialCapacity);
+            // Metric ++
             ((UnpooledByteBufAllocator) alloc()).incrementHeap(bytes.length);
             return bytes;
         }
@@ -159,6 +169,7 @@ public final class UnpooledByteBufAllocator extends AbstractByteBufAllocator imp
         protected void freeArray(byte[] array) {
             int length = array.length;
             super.freeArray(array);
+            // Metric --
             ((UnpooledByteBufAllocator) alloc()).decrementHeap(length);
         }
     }

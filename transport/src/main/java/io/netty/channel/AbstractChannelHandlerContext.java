@@ -101,6 +101,11 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
         this.name = ObjectUtil.checkNotNull(name, "name");
         this.pipeline = pipeline;
         this.executor = executor;
+
+        //这个算是较前面版本的一个优化吧，
+        //他会根据ChannelInboundHandler，ChannelOutboundHandler方法注册 我们可用的方法；
+        //如果方法被注解@Skip修改，获取需要执行该方法的Handler直接跳过，
+        // 防止我们注册了自己的handler对于一些事件没传递上去，也减少了handler的调用
         this.executionMask = mask(handlerClass);
         // Its ordered if its driven by the EventLoop or the given Executor is an instanceof OrderedEventExecutor.
         ordered = executor == null || executor instanceof OrderedEventExecutor;
@@ -521,11 +526,14 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
         if (remoteAddress == null) {
             throw new NullPointerException("remoteAddress");
         }
+
+        //校验promise(根据下面注释，检验这个是否被canelled，这个是channel注册到nioEventLoop上时new 的 DefaultChannelPromise)
         if (isNotValidPromise(promise, false)) {
             // cancelled
             return promise;
         }
 
+        //获取上一个 connect方法没被注解@Skip修改的ChannelOutboundHandler
         final AbstractChannelHandlerContext next = findContextOutbound(MASK_CONNECT);
         EventExecutor executor = next.executor();
         if (executor.inEventLoop()) {

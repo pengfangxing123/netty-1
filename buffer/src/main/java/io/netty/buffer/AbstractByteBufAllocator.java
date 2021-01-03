@@ -27,9 +27,25 @@ import io.netty.util.internal.StringUtil;
  * Skeletal {@link ByteBufAllocator} implementation to extend.
  */
 public abstract class AbstractByteBufAllocator implements ByteBufAllocator {
+    /**
+     * 默认容量大小
+     */
     static final int DEFAULT_INITIAL_CAPACITY = 256;
+    /**
+     * 默认最大容量大小，无限。
+     */
     static final int DEFAULT_MAX_CAPACITY = Integer.MAX_VALUE;
+
+    /**
+     * Composite ByteBuf 可包含的 ByteBuf 的最大数量
+     */
     static final int DEFAULT_MAX_COMPONENTS = 16;
+
+    /**
+     * 扩容分界线，4M 小
+     * 于4m 就是64的倍数扩容直到大于minNewCapacity
+     * 大于4M 就是每次加4M
+     */
     static final int CALCULATE_THRESHOLD = 1048576 * 4; // 4 MiB page
 
     static {
@@ -40,6 +56,7 @@ public abstract class AbstractByteBufAllocator implements ByteBufAllocator {
         ResourceLeakTracker<ByteBuf> leak;
         switch (ResourceLeakDetector.getLevel()) {
             case SIMPLE:
+                //SIMPLE 级别，创建 SimpleLeakAwareByteBuf
                 leak = AbstractByteBuf.leakDetector.track(buf);
                 if (leak != null) {
                     buf = new SimpleLeakAwareByteBuf(buf, leak);
@@ -47,6 +64,9 @@ public abstract class AbstractByteBufAllocator implements ByteBufAllocator {
                 break;
             case ADVANCED:
             case PARANOID:
+                //ADVANCED 和 PARANOID 级别，创建 AdvancedLeakAwareByteBuf
+                //PARANOID 级别，一定返回 ResourceLeakTracker 对象
+                //ADVANCED 级别，随机概率( 默认为 1% 左右 )返回 ResourceLeakTracker
                 leak = AbstractByteBuf.leakDetector.track(buf);
                 if (leak != null) {
                     buf = new AdvancedLeakAwareByteBuf(buf, leak);
@@ -80,7 +100,15 @@ public abstract class AbstractByteBufAllocator implements ByteBufAllocator {
         return buf;
     }
 
+    /**
+     * 是否倾向创建 Direct ByteBuf
+     * 有一个前提是需要支持 Unsafe 操作（构造方法里面）
+     */
     private final boolean directByDefault;
+
+    /**
+     * 空 ByteBuf 缓存
+     */
     private final ByteBuf emptyBuf;
 
     /**
@@ -101,6 +129,11 @@ public abstract class AbstractByteBufAllocator implements ByteBufAllocator {
         emptyBuf = new EmptyByteBuf(this);
     }
 
+    /**
+     * 根据 directByDefault 的值，调用 #directBuffer(...) 方法，
+     * 还是调用 #heapBuffer(...) 方法
+     * @return
+     */
     @Override
     public ByteBuf buffer() {
         if (directByDefault) {
@@ -148,6 +181,7 @@ public abstract class AbstractByteBufAllocator implements ByteBufAllocator {
         }
         return heapBuffer(initialCapacity, maxCapacity);
     }
+
 
     @Override
     public ByteBuf heapBuffer() {
@@ -263,16 +297,20 @@ public abstract class AbstractByteBufAllocator implements ByteBufAllocator {
 
         // If over threshold, do not double but just increase by threshold.
         if (minNewCapacity > threshold) {
+            //如果大于负载threshold 4M
             int newCapacity = minNewCapacity / threshold * threshold;
+            //如果newCapacity+threshold >maxCapacity ->容量就是maxCapacity
             if (newCapacity > maxCapacity - threshold) {
                 newCapacity = maxCapacity;
             } else {
+                //否则就是newCapacity+threshold
                 newCapacity += threshold;
             }
             return newCapacity;
         }
 
         // Not over threshold. Double up to 4 MiB, starting from 64.
+        //否则以64的倍数扩容直到大于minNewCapacity
         int newCapacity = 64;
         while (newCapacity < minNewCapacity) {
             newCapacity <<= 1;

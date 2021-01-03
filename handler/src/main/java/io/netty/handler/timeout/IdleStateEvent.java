@@ -19,6 +19,7 @@ import io.netty.channel.Channel;
 import io.netty.util.internal.ObjectUtil;
 
 /**
+ * 空闲事件
  * A user event triggered by {@link IdleStateHandler} when a {@link Channel} is idle.
  */
 public class IdleStateEvent {

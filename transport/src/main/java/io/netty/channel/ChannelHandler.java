@@ -178,17 +178,22 @@ import java.lang.annotation.Target;
 public interface ChannelHandler {
 
     /**
+     * ChannelHandler 已经成功被添加到 ChannelPipeline 中，可以进行处理事件
+     * 该方法，一般用于 ChannelHandler 的初始化的逻辑（比如ChannelInitializer，调用initChannel方法 ）
      * Gets called after the {@link ChannelHandler} was added to the actual context and it's ready to handle events.
      */
     void handlerAdded(ChannelHandlerContext ctx) throws Exception;
 
     /**
+     * ChannelHandler 已经成功从 ChannelPipeline 中被移除，不再进行处理事件。
+     * 该方法，一般用于 ChannelHandler 的销毁的逻辑
      * Gets called after the {@link ChannelHandler} was removed from the actual context and it doesn't handle events
      * anymore.
      */
     void handlerRemoved(ChannelHandlerContext ctx) throws Exception;
 
     /**
+     * 抓取到异常。目前被废弃，移到 ChannelInboundHandler 接口中，作为对 Exception Inbound 事件的处理
      * Gets called if a {@link Throwable} was thrown.
      *
      * @deprecated if you want to handle this event you should implement {@link ChannelInboundHandler} and
@@ -198,6 +203,7 @@ public interface ChannelHandler {
     void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception;
 
     /**
+     * handler可以重复添加到 不同channel的pipeline的标识
      * Indicates that the same instance of the annotated {@link ChannelHandler}
      * can be added to one or more {@link ChannelPipeline}s multiple times
      * without a race condition.

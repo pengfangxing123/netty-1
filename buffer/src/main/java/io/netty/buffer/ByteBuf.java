@@ -263,17 +263,20 @@ public abstract class ByteBuf implements ReferenceCounted, Comparable<ByteBuf> {
     public abstract ByteBuf capacity(int newCapacity);
 
     /**
+     * // 最大容量
      * Returns the maximum allowed capacity of this buffer. This value provides an upper
      * bound on {@link #capacity()}.
      */
     public abstract int maxCapacity();
 
     /**
+     *
      * Returns the {@link ByteBufAllocator} which created this buffer.
      */
     public abstract ByteBufAllocator alloc();
 
     /**
+     * 字节序，即大小端
      * Returns the <a href="http://en.wikipedia.org/wiki/Endianness">endianness</a>
      * of this buffer.
      *
@@ -298,6 +301,7 @@ public abstract class ByteBuf implements ReferenceCounted, Comparable<ByteBuf> {
     public abstract ByteBuf order(ByteOrder endianness);
 
     /**
+     * 获得被包装( wrap )的 ByteBuf 对象
      * Return the underlying buffer instance if this buffer is a wrapper of another buffer.
      *
      * @return {@code null} if this buffer is not a wrapper
@@ -321,6 +325,7 @@ public abstract class ByteBuf implements ReferenceCounted, Comparable<ByteBuf> {
     public abstract ByteBuf asReadOnly();
 
     /**
+     * 读取位置
      * Returns the {@code readerIndex} of this buffer.
      */
     public abstract int readerIndex();
@@ -336,6 +341,7 @@ public abstract class ByteBuf implements ReferenceCounted, Comparable<ByteBuf> {
     public abstract ByteBuf readerIndex(int readerIndex);
 
     /**
+     * 写入位置
      * Returns the {@code writerIndex} of this buffer.
      */
     public abstract int writerIndex();
@@ -2343,6 +2349,8 @@ public abstract class ByteBuf implements ReferenceCounted, Comparable<ByteBuf> {
     public abstract ByteBuffer[] nioBuffers(int index, int length);
 
     /**
+     * 基于byte[] 的返回true(堆内存)
+     * 基于byteBuffer的返回false(直接内存)
      * Returns {@code true} if and only if this buffer has a backing byte array.
      * If this method returns true, you can safely call {@link #array()} and
      * {@link #arrayOffset()}.

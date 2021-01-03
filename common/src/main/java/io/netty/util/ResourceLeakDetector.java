@@ -39,6 +39,10 @@ import static io.netty.util.internal.StringUtil.EMPTY_STRING;
 import static io.netty.util.internal.StringUtil.NEWLINE;
 import static io.netty.util.internal.StringUtil.simpleClassName;
 
+/**
+ * 内存泄漏探测器
+ * @param <T>
+ */
 public class ResourceLeakDetector<T> {
 
     private static final String PROP_LEVEL_OLD = "io.netty.leakDetectionLevel";
@@ -268,7 +272,9 @@ public class ResourceLeakDetector<T> {
     }
 
     /**
-     * 给指定资源( 例如 ByteBuf 对象 )创建一个检测它是否泄漏的 ResourceLeakTracker 对象
+     * 给指定资源( 例如 ByteBuf 对象 )创建一个检测它是否泄漏的 ResourceLeakTracker 追踪器对象
+     * 跟踪一个池化资源
+     * 它需要在这个资源被释放的时候调用close方法
      * Creates a new {@link ResourceLeakTracker} which is expected to be closed via
      * {@link ResourceLeakTracker#close(Object)} when the related resource is deallocated.
      *
@@ -279,6 +285,11 @@ public class ResourceLeakDetector<T> {
         return track0(obj);
     }
 
+    /**
+     * 追踪器创建逻辑
+     * @param obj
+     * @return
+     */
     @SuppressWarnings("unchecked")
     private DefaultResourceLeak track0(T obj) {
         Level level = ResourceLeakDetector.level;
@@ -323,6 +334,7 @@ public class ResourceLeakDetector<T> {
             return;
         }
 
+        // 检查和报告之前所有的泄漏
         // Detect and report previous leaks.
         for (;;) {
             @SuppressWarnings("unchecked")
@@ -335,7 +347,9 @@ public class ResourceLeakDetector<T> {
             if (!ref.dispose()) {
                 continue;
             }
-            // 获得 Record 日志
+
+            // 到这里说明已经产生泄露了
+            // 获取这个泄露的相关记录的字符串
             String records = ref.toString();
             // 利用putIfAbsent 相同 Record 日志，只汇报一次
             if (reportedLeaks.putIfAbsent(records, Boolean.TRUE) == null) {
@@ -380,7 +394,7 @@ public class ResourceLeakDetector<T> {
     }
 
     /**
-     * 内存泄露追踪器接口
+     * 内存泄露追踪器
      * @param <T>
      */
     @SuppressWarnings("deprecation")
@@ -412,6 +426,18 @@ public class ResourceLeakDetector<T> {
 
         /**
          * DefaultResourceLeak 集合。来自 {@link ResourceLeakDetector#allLeaks}
+         * 通过判断allLeaks是否包含DefaultResourceLeak来判断 xxxLeakAwareByteBuf是否是手动回收的，
+         * 如果手动回收调用{@link  DefaultResourceLeak#close()} 话会从allLeaks中移除DefaultResourceLeak
+         * 如果是jvm回收了，我们没有close的话，DefaultResourceLeak是没有从allLeaks移除的
+         *
+         *
+         * 有说为什么不直接给DefaultResourceLeak一个boolen值来表有没有正确回收呢
+         * 因为如果xxxLeakAwareByteBuf被Jvm 回收DefaultResourceLeak也会被回收
+         * 这里用set，资料说是对被DefaultResourceLeak的一个强引用，这样即使持有DefaultResourceLeak的对象xxxLeakAwareByteBuf被回收了
+         * DefaultResourceLeak也不会被回收(这个说法好像是提交了Issue，得到了作者得回复)
+         *
+         * 实际上如果DefaultResourceLeak对象被回收了也会放到refQueue中，这个好像也是个强引用？
+         * 所以这里还是有个疑问
          */
         private final Set<DefaultResourceLeak<?>> allLeaks;
         /**
@@ -425,32 +451,64 @@ public class ResourceLeakDetector<T> {
                 Object referent,
                 ReferenceQueue<Object> refQueue,
                 Set<DefaultResourceLeak<?>> allLeaks) {
-            // 父构造方法
+            // 调用WeakReference的调用方法
+            // 注意传入了ReferenceQueue， 完成GC的通知
             super(referent, refQueue);
 
             assert referent != null;
 
+            // 这里生成了我们引用指向的资源的hashCode
+            // 注意这里我们存储了hashCode而非资源对象本身
+            // 因为如果存储资源对象本身的话我们就形成了强引用，导致资源不可能被GC
             // Store the hash of the tracked object to later assert it in the close(...) method.
             // It's important that we not store a reference to the referent as this would disallow it from
             // be collected via the WeakReference.
             trackedHash = System.identityHashCode(referent);
+            // 将当前的DefaultResourceLeak示例加入到allLeaks集合里面
+            // 这个集合是由它跟踪的资源所属的ResourceLeakDetector管理
+            // 这个集合在后面判断资源是否正确释放扮演重要角色
             allLeaks.add(this);
+
+            // 初始化设置当前DefaultResourceLeak所关联的record
             // Create a new Record so we always have the creation stacktrace included.
             headUpdater.set(this, new Record(Record.BOTTOM));
             this.allLeaks = allLeaks;
         }
 
+        /**
+         * 单纯记录一个调用点，没有任何额外提示信息
+         */
         @Override
         public void record() {
             record0(null);
         }
 
+        /**
+         * 记录一个调用点，并附上额外信息
+         */
         @Override
         public void record(Object hint) {
             record0(hint);
         }
 
         /**
+         * /**
+         *这个函数非常有意思
+         * 有一个预设的TARGET_RECORDS字段
+         * 这里有个问题，如果这个资源会在很多地方被记录，
+         * 那么这个跟踪这个资源的DefaultResourceLeak的Record就会有很多
+         * 但并不是每个记录都需要被记录，否则就会对内存和运行都会造成压力
+         * 因为每个Record都会记录整个调用栈
+         * 因此需要对记录做取舍
+         * 这里有几个原则
+         * 1. 所有record都会用一根单向链表来保存
+         * 2. 最新的record永远都会被记录
+         * 3. 小于TARGET_RECORDS数目的record也会被记录
+         * 4. 当数目大于等于TARGET_RECORDS的时候，就会根据概率选择是用最新的record替换掉
+         *    当前链表中头上的record(保证链表长度不会增加)，还是仅仅添加到头上的record之前
+         *    (也就是增加链表长度)，当链表长度越大时，替换的概率也越大
+         *          * @param hint
+         *
          * This method works by exponentially backing off as more records are present in the stack. Each record has a
          * 1 / 2^n chance of dropping the top most record and replacing it with itself. This has a number of convenient
          * properties:
@@ -477,6 +535,7 @@ public class ResourceLeakDetector<T> {
          * thread won the race.
          */
         private void record0(Object hint) {
+            // 如果TARGET_RECORDS小于等于0 表示不记录，默认为4
             // Check TARGET_RECORDS > 0 here to avoid similar check before remove from and add to lastRecords
             if (TARGET_RECORDS > 0) {
                 Record oldHead;
@@ -484,51 +543,83 @@ public class ResourceLeakDetector<T> {
                 Record newHead;
                 boolean dropped;
                 do {
+                    // 如果链表头为null，说明已经close了
                     if ((prevHead = oldHead = headUpdater.get(this)) == null) {
                         // already closed.
                         return;
                     }
+                    // 获取当前链表长度
+                    //初始化时添加的pos是0->-1+1=0
                     final int numElements = oldHead.pos + 1;
                     if (numElements >= TARGET_RECORDS) {
+                        // 获取是否替换的概率，先获取一个因子n
+                        // 这个n最多为30，最小为链表长度 - TARGET_RECORDS
                         final int backOffFactor = Math.min(numElements - TARGET_RECORDS, 30);
+                        // 这里有 1 / 2^n的概率来添加这个record而不丢弃原有的链表头record，也就是不替换
                         if (dropped = PlatformDependent.threadLocalRandom().nextInt(1 << backOffFactor) != 0) {
+                            //这里就表示链表头record被丢弃了
                             prevHead = oldHead.next;
                         }
                     } else {
                         dropped = false;
                     }
+                    // cas 更新record链表
                     newHead = hint != null ? new Record(prevHead, hint) : new Record(prevHead);
                 } while (!headUpdater.compareAndSet(this, oldHead, newHead));
+                // 增加丢弃的record数量
                 if (dropped) {
                     droppedRecordsUpdater.incrementAndGet(this);
                 }
             }
         }
 
+        /**
+         * 判断是否存在泄漏的关键
+         * @return false 代表已经正确close
+         *         true 代表并未正确close
+         */
         boolean dispose() {
+            // 清理对资源对象的引用
             clear();
+            // 直接使用allLeaks.remove(this) 的结果来
+            // 如果remove成功就说明之前close没有调用成功
+            // 也就说明了这个监控对象并没有调用足够的release来完成资源释放
+            // 如果remove失败说明之前已经完成了close的调用，一切正常
             return allLeaks.remove(this);
         }
 
         @Override
         public boolean close() {
+            // 从allLeaks 集合中去除自己
+            // allLeaks中是否包含自己就作为是否正确release和GC的标准
             if (allLeaks.remove(this)) {
                 // Call clear so the reference is not even enqueued.
+                // 如果成功去除自己，说明是正常流程
+                // 清除掉对资源对象的引用
                 clear();
+                // 设置链表头record到null
                 headUpdater.set(this, null);
+                // 返回关闭成功
                 return true;
             }
+            // 说明自己已经被去除了，可能是重复close，或者是存在泄露，返回关闭失败
             return false;
         }
 
         @Override
         public boolean close(T trackedObject) {
+            // 保证释放和跟踪的是同一个对象
             // Ensure that the object that was tracked is the same as the one that was passed to close(...).
             assert trackedHash == System.identityHashCode(trackedObject);
 
             try {
+                // 调用真正close的逻辑
                 return close();
             } finally {
+                // 保证在这个方法调用之前跟踪的资源对象不会被GC
+                // 具体原因可参见这个方法的注释，这里只需要注意
+                // 如果在这个方法之前对象就被GC，就不能保证close是否正常
+                // 因为如果GC之后再close，就有可能导致泄漏的误判
                 // This method will do `synchronized(trackedObject)` and we should be sure this will not cause deadlock.
                 // It should not, because somewhere up the callstack should be a (successful) `trackedObject.release`,
                 // therefore it is unreasonable that anyone else, anywhere, is holding a lock on the trackedObject.
@@ -538,6 +629,17 @@ public class ResourceLeakDetector<T> {
         }
 
          /**
+          *
+          * 这个方法看上去很莫名，只在跟踪对象上调用了一个空synchronized块
+          * 这里其实引申出来一个很奇葩的问题，就是JVM GC有可能会在一个对象的方法正在执行的时候
+          * 就判定这个对象已经不可达，并把它给回收了，具体可以看这个帖子
+          * https://stackoverflow.com/questions/26642153/finalize-called-on-strongly-reachable-object-in-java-8
+          * 针对这个问题，Java 9 提供了Reference.reachabilityFence这个方法作为解决方案
+          * 出于兼容性考虑，这里实现了一个netty版本的reachabilityFence方法，在ref上调用了空synchronized块
+          * 来保证在这个方法调用前，JVM是不会对这个对象进行GC，(synchronized保证了不会出现指令重排)
+          * 当然引入synchronized块就有可能会引入死锁，这个需要调用者来避免这个事情
+          * 还有一个注意的就是这个方法一定要在finally块中使用，保证这个方法的调用会在整个流程的最后，从而保证GC不会执行
+          *
          * Ensures that the object referenced by the given reference remains
          * <a href="package-summary.html#reachability"><em>strongly reachable</em></a>,
          * regardless of any prior actions of the program that might otherwise cause
@@ -566,15 +668,20 @@ public class ResourceLeakDetector<T> {
 
         @Override
         public String toString() {
+            //获取record链表
             Record oldHead = headUpdater.getAndSet(this, null);
             if (oldHead == null) {
                 // Already closed
+                //当是SimpleLeakAwareByteBuf的 leak时，不会记录record，但是会有一个初始的record，
+                // 所以为空表示已经被tostring或者释放了
                 return EMPTY_STRING;
             }
 
+            //获取丢弃的record数量
             final int dropped = droppedRecordsUpdater.get(this);
             int duped = 0;
 
+            //获取record链表长度
             int present = oldHead.pos + 1;
             // Guess about 2 kilobytes per stack trace
             StringBuilder buf = new StringBuilder(present * 2048).append(NEWLINE);
@@ -582,7 +689,9 @@ public class ResourceLeakDetector<T> {
 
             int i = 1;
             Set<String> seen = new HashSet<String>(present);
+            //Record.BOTTOM是一个标识 存在于record链尾部，相当于一个tail，在DefaultResourceLeak初始化时作为next存入
             for (; oldHead != Record.BOTTOM; oldHead = oldHead.next) {
+                //获取每个Record代表的堆栈调用信息
                 String s = oldHead.toString();
                 if (seen.add(s)) {
                     if (oldHead.next == Record.BOTTOM) {
@@ -595,6 +704,7 @@ public class ResourceLeakDetector<T> {
                 }
             }
 
+            // 拼接 duped次数
             if (duped > 0) {
                 buf.append(": ")
                         .append(duped)
@@ -602,6 +712,7 @@ public class ResourceLeakDetector<T> {
                         .append(NEWLINE);
             }
 
+            // 拼接 dropped (丢弃) 次数
             if (dropped > 0) {
                 buf.append(": ")
                    .append(dropped)
@@ -625,17 +736,20 @@ public class ResourceLeakDetector<T> {
         Set<String> nameSet = new HashSet<String>(Arrays.asList(methodNames));
         // Use loop rather than lookup. This avoids knowing the parameters, and doesn't have to handle
         // NoSuchMethodException.
+        //校验这些方法是否属于clz
         for (Method method : clz.getDeclaredMethods()) {
             if (nameSet.remove(method.getName()) && nameSet.isEmpty()) {
                 break;
             }
         }
+        //有属于的 抛出异常
         if (!nameSet.isEmpty()) {
             throw new IllegalArgumentException("Can't find '" + nameSet + "' in " + clz.getName());
         }
         String[] oldMethods;
         String[] newMethods;
         do {
+            //一个staitc 的数组，i ->clz name i+1 ->method name
             oldMethods = excludedMethods.get();
             newMethods = Arrays.copyOf(oldMethods, oldMethods.length + 2 * methodNames.length);
             for (int i = 0; i < methodNames.length; i++) {
@@ -692,11 +806,16 @@ public class ResourceLeakDetector<T> {
             }
 
             // Append the stack trace.
+            //获取调用的堆栈信息，因为 Record extends Throwable
+            // 依托于Throwable的getStackTrace方法，获取创建时候的调用栈
             StackTraceElement[] array = getStackTrace();
             // Skip the first three elements.
+            // 跳过最开始的三个栈元素，因为它们就是调用record方法的那些栈信息，没必要显示了
             out: for (int i = 3; i < array.length; i++) {
                 StackTraceElement element = array[i];
                 // Strip the noisy stack trace elements.
+                //是否要跳过
+                //excludedMethods的规则 看addExclusions方法
                 String[] exclusions = excludedMethods.get();
                 for (int k = 0; k < exclusions.length; k += 2) {
                     if (exclusions[k].equals(element.getClassName())

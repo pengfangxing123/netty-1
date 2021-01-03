@@ -90,6 +90,7 @@ public class EpollServerChannelConfig extends EpollChannelConfig implements Serv
         }
     }
 
+    @Override
     public EpollServerChannelConfig setReuseAddress(boolean reuseAddress) {
         try {
             ((AbstractEpollChannel) channel).socket.setReuseAddress(reuseAddress);
@@ -99,6 +100,7 @@ public class EpollServerChannelConfig extends EpollChannelConfig implements Serv
         }
     }
 
+    @Override
     public int getReceiveBufferSize() {
         try {
             return ((AbstractEpollChannel) channel).socket.getReceiveBufferSize();

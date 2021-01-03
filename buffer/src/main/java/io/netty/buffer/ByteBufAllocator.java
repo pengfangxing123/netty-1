@@ -24,6 +24,7 @@ public interface ByteBufAllocator {
     ByteBufAllocator DEFAULT = ByteBufUtil.DEFAULT_ALLOCATOR;
 
     /**
+     * 创建一个 ByteBuf 对象。具体创建的是 Heap ByteBuf 还是 Direct ByteBuf ，由实现类决定
      * Allocate a {@link ByteBuf}. If it is a direct or heap buffer
      * depends on the actual implementation.
      */
@@ -43,6 +44,7 @@ public interface ByteBufAllocator {
     ByteBuf buffer(int initialCapacity, int maxCapacity);
 
     /**
+     * 创建一个用于 IO 操作的 ByteBuf 对象。倾向于 Direct ByteBuf ，因为对于 IO 操作来说，性能更优
      * Allocate a {@link ByteBuf}, preferably a direct buffer which is suitable for I/O.
      */
     ByteBuf ioBuffer();
@@ -58,6 +60,7 @@ public interface ByteBufAllocator {
     ByteBuf ioBuffer(int initialCapacity, int maxCapacity);
 
     /**
+     * 创建一个 Heap Buffer 对象
      * Allocate a heap {@link ByteBuf}.
      */
     ByteBuf heapBuffer();
@@ -74,6 +77,7 @@ public interface ByteBufAllocator {
     ByteBuf heapBuffer(int initialCapacity, int maxCapacity);
 
     /**
+     * 创建一个 Direct Buffer 对象
      * Allocate a direct {@link ByteBuf}.
      */
     ByteBuf directBuffer();
@@ -90,6 +94,7 @@ public interface ByteBufAllocator {
     ByteBuf directBuffer(int initialCapacity, int maxCapacity);
 
     /**
+     * 创建一个 Composite ByteBuf 对象。具体创建的是 Heap ByteBuf 还是 Direct ByteBuf ，由实现类决定
      * Allocate a {@link CompositeByteBuf}.
      * If it is a direct or heap buffer depends on the actual implementation.
      */
@@ -102,6 +107,7 @@ public interface ByteBufAllocator {
     CompositeByteBuf compositeBuffer(int maxNumComponents);
 
     /**
+     * 创建一个 Composite Heap ByteBuf 对象
      * Allocate a heap {@link CompositeByteBuf}.
      */
     CompositeByteBuf compositeHeapBuffer();
@@ -112,6 +118,7 @@ public interface ByteBufAllocator {
     CompositeByteBuf compositeHeapBuffer(int maxNumComponents);
 
     /**
+     * 创建一个 Composite Direct ByteBuf 对象
      * Allocate a direct {@link CompositeByteBuf}.
      */
     CompositeByteBuf compositeDirectBuffer();
@@ -122,11 +129,13 @@ public interface ByteBufAllocator {
     CompositeByteBuf compositeDirectBuffer(int maxNumComponents);
 
     /**
+     * 是否基于 Direct ByteBuf 对象池
      * Returns {@code true} if direct {@link ByteBuf}'s are pooled
      */
     boolean isDirectBufferPooled();
 
     /**
+     *  ByteBuf 扩容时，计算新的容量，该容量的值在 [minNewCapacity, maxCapacity] 范围内
      * Calculate the new capacity of a {@link ByteBuf} that is used when a {@link ByteBuf} needs to expand by the
      * {@code minNewCapacity} with {@code maxCapacity} as upper-bound.
      */

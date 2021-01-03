@@ -116,16 +116,21 @@ public abstract class ReferenceCountUpdater<T extends ReferenceCounted> {
         return retain0(instance, increment, rawIncrement);
     }
 
+    //这个注释，rawIncrement为increment << 1
     // rawIncrement == increment << 1
     private T retain0(T instance, final int increment, final int rawIncrement) {
         int oldRef = updater().getAndAdd(instance, rawIncrement);
+        //这里(oldRef & 1) != 0表示oldRef第1位是1
+        // 而rawIncrement是increment << 1，初始值是2，所以第1位是1的话只有tryFinalRelease0最后回收时才设置为1，所以已经回收了
         if (oldRef != 2 && oldRef != 4 && (oldRef & 1) != 0) {
             throw new IllegalReferenceCountException(0, increment);
         }
         // don't pass 0!
         if ((oldRef <= 0 && oldRef + rawIncrement >= 0)
+                //oldRef + rawIncrement < oldRef表示rawIncrement为负数
                 || (oldRef >= 0 && oldRef + rawIncrement < oldRef)) {
             // overflow case
+            //重新加回来
             updater().getAndAdd(instance, -rawIncrement);
             throw new IllegalReferenceCountException(realRefCnt(oldRef), increment);
         }
@@ -133,8 +138,13 @@ public abstract class ReferenceCountUpdater<T extends ReferenceCounted> {
     }
 
     public final boolean release(T instance) {
+        //获取refCnt的值
         int rawCnt = nonVolatileRawCnt(instance);
-        return rawCnt == 2 ? tryFinalRelease0(instance, 2) || retryRelease0(instance, 1)
+        return rawCnt == 2 ?
+                //这里第一个成功的话，就释放完毕refcnt被修改为1 ，失败的话应该是，有其他线程修改了refcnt的值
+                //所以又去调用retryRelease0(instance, 1)
+                //这里的具体逻辑不考虑
+                tryFinalRelease0(instance, 2) || retryRelease0(instance, 1)
                 : nonFinalRelease0(instance, 1, rawCnt, toLiveRealRefCnt(rawCnt, 1));
     }
 
@@ -150,8 +160,9 @@ public abstract class ReferenceCountUpdater<T extends ReferenceCounted> {
     }
 
     private boolean nonFinalRelease0(T instance, int decrement, int rawCnt, int realCnt) {
-        if (decrement < realCnt
+        if (decrement < realCnt//表示减少的数量小于使用的次数realCnt->表示不是最后回收
                 // all changes to the raw count are 2x the "real" change - overflow is OK
+                //rawCnt值减少decrement << 1
                 && updater().compareAndSet(instance, rawCnt, rawCnt - (decrement << 1))) {
             return false;
         }
@@ -162,6 +173,7 @@ public abstract class ReferenceCountUpdater<T extends ReferenceCounted> {
         for (;;) {
             int rawCnt = updater().get(instance), realCnt = toLiveRealRefCnt(rawCnt, decrement);
             if (decrement == realCnt) {
+                //toLiveRealRefCnt是将rawCnt右移1位，
                 if (tryFinalRelease0(instance, rawCnt)) {
                     return true;
                 }

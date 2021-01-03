@@ -70,49 +70,63 @@ public class PooledByteBufAllocator extends AbstractByteBufAllocator implements 
 
 
     /**
-     * 默认 {@link PoolThreadCache} 的 tiny 类型的内存块的缓存数量。默认为 512 。
+     * 默认 {@link PoolThreadCache} 的 tiny 类型的内存块的缓存数量(队列长度)。默认为 512 。
      *
      * @see #tinyCacheSize
      */
     private static final int DEFAULT_TINY_CACHE_SIZE;
 
     /**
-     * 默认 {@link PoolThreadCache} 的 small 类型的内存块的缓存数量。默认为 256 。
+     * 默认 {@link PoolThreadCache} 的 small 类型的内存块的缓存数量(队列长度)。默认为 256 。
      *
      * @see #smallCacheSize
      */
     private static final int DEFAULT_SMALL_CACHE_SIZE;
 
     /**
-     * 默认 {@link PoolThreadCache} 的 normal 类型的内存块的缓存数量。默认为 64 。
+     * 默认 {@link PoolThreadCache} 的 normal 类型的内存块的缓存数量(队列长度)。默认为 64 。
      *
      * @see #normalCacheSize
      */
     private static final int DEFAULT_NORMAL_CACHE_SIZE;
+
     /**
      * 默认 {@link PoolThreadCache} 缓存的内存块的最大字节数
-     * 32kb
+     * 用于计算 normal 类型缓存块 的数组长度
+     * 默认32kb
      */
     private static final int DEFAULT_MAX_CACHED_BUFFER_CAPACITY;
+
     /**
      * 默认 {@link PoolThreadCache#freeSweepAllocationThreshold}
-     * 到达该阀值，释放缓存
+     * 到达该阀值，释放缓存(调用trim)
      *
      * 默认为 8192 次
      *
      */
     private static final int DEFAULT_CACHE_TRIM_INTERVAL;
 
+    /**
+     * PoolThreadCache 自动清理的周期
+     * 默认是 0 不清理
+     */
     private static final long DEFAULT_CACHE_TRIM_INTERVAL_MILLIS;
+
     /**
      * 默认是否使用 {@link PoolThreadCache}
      */
     private static final boolean DEFAULT_USE_CACHE_FOR_ALL_THREADS;
     /**
      * 默认 Direct 内存对齐基准
+     * 默认是 0
      */
     private static final int DEFAULT_DIRECT_MEMORY_CACHE_ALIGNMENT;
 
+    /**
+     * 每个chunk 对{@link PooledByteBuf#tmpNioBuf} 临时byteBuf的最大数量
+     * 在poolChunk#free中用到
+     * 默认为1023
+     */
     static final int DEFAULT_MAX_CACHED_BYTEBUFFERS_PER_CHUNK;
 
     /**
@@ -124,6 +138,10 @@ public class PooledByteBufAllocator extends AbstractByteBufAllocator implements 
      */
     private static final int MAX_CHUNK_SIZE = (int) (((long) Integer.MAX_VALUE + 1) / 2);
 
+    /**
+     * 清除PoolThreadCache 的任务 Runnable
+     * 默认是不开启的
+     */
     private final Runnable trimTask = new Runnable() {
         @Override
         public void run() {
@@ -156,7 +174,7 @@ public class PooledByteBufAllocator extends AbstractByteBufAllocator implements 
 
         //为nHeapArena和nDirectArena确定合理的默认值。
         //Determine reasonable default for nHeapArena and nDirectArena.
-        //假设每个竞技场有3个块，则该池消耗的内存不应超过最大内存的50％。
+        //假设每个PoolArena有3个块，则该池消耗的内存不应超过最大内存的50％。
         //Assuming each arena has 3 chunks, the pool should not consume more than 50% of max memory.
         final Runtime runtime = Runtime.getRuntime();
 
@@ -172,6 +190,9 @@ public class PooledByteBufAllocator extends AbstractByteBufAllocator implements 
         //8k<<11 得到每个chunkSize大小16M
         final int defaultChunkSize = DEFAULT_PAGE_SIZE << DEFAULT_MAX_ORDER;
         //假使每个arena有3个chunks，arena的数量*大小不超过最大内存的一半
+        //最大内存/defaultChunkSize  每个chunkSize的值
+        // /2 保证分配的内存不超过最大内存的一半，
+        // /3 假设一个poolArena有三个Chunk
        DEFAULT_NUM_HEAP_ARENA = Math.max(0,
                 SystemPropertyUtil.getInt(
                         "io.netty.allocator.numHeapArenas",
@@ -185,29 +206,36 @@ public class PooledByteBufAllocator extends AbstractByteBufAllocator implements 
                                 defaultMinNumArena,
                                 PlatformDependent.maxDirectMemory() / defaultChunkSize / 2 / 3)));
 
+        //三种缓存 MemoryRegionCache 中队列的长度
         // cache sizes
         DEFAULT_TINY_CACHE_SIZE = SystemPropertyUtil.getInt("io.netty.allocator.tinyCacheSize", 512);
         DEFAULT_SMALL_CACHE_SIZE = SystemPropertyUtil.getInt("io.netty.allocator.smallCacheSize", 256);
         DEFAULT_NORMAL_CACHE_SIZE = SystemPropertyUtil.getInt("io.netty.allocator.normalCacheSize", 64);
 
+        //最大的缓存大小 32kb
         // 32 kb is the default maximum capacity of the cached buffer. Similar to what is explained in
         // 'Scalable memory allocation using jemalloc'
         DEFAULT_MAX_CACHED_BUFFER_CAPACITY = SystemPropertyUtil.getInt(
                 "io.netty.allocator.maxCachedBufferCapacity", 32 * 1024);
 
+        //一个PoolThreadCache 最多的缓存数量 8192
         // the number of threshold of allocations when cached entries will be freed up if not frequently used
         DEFAULT_CACHE_TRIM_INTERVAL = SystemPropertyUtil.getInt(
                 "io.netty.allocator.cacheTrimInterval", 8192);
 
+        //定时清理PoolThreadCache 的时间(不关注)
         DEFAULT_CACHE_TRIM_INTERVAL_MILLIS = SystemPropertyUtil.getLong(
                 "io.netty.allocation.cacheTrimIntervalMillis", 0);
 
+        //是否所有线程都使用cache 默认为true
         DEFAULT_USE_CACHE_FOR_ALL_THREADS = SystemPropertyUtil.getBoolean(
                 "io.netty.allocator.useCacheForAllThreads", true);
 
+        //Direct 内存对齐基准（不知道干嘛的）
         DEFAULT_DIRECT_MEMORY_CACHE_ALIGNMENT = SystemPropertyUtil.getInt(
                 "io.netty.allocator.directMemoryCacheAlignment", 0);
 
+        //每个chunk 对{@link PooledByteBuf#tmpNioBuf} 临时byteBuf的最大数量
         // Use 1023 by default as we use an ArrayDeque as backing storage which will then allocate an internal array
         // of 1024 elements. Otherwise we would allocate 2048 and only use 1024 which is wasteful.
         DEFAULT_MAX_CACHED_BYTEBUFFERS_PER_CHUNK = SystemPropertyUtil.getInt(
@@ -314,10 +342,24 @@ public class PooledByteBufAllocator extends AbstractByteBufAllocator implements 
                 useCacheForAllThreads, DEFAULT_DIRECT_MEMORY_CACHE_ALIGNMENT);
     }
 
+    /**
+     *
+     * @param preferDirect 是否优先直接内存 (优先的话，调用buffer()时分配直接内存，否则是堆内存)
+     * @param nHeapArena 基于堆 的PoolArena个数
+     * @param nDirectArena 基于直接内存 的PoolArena个数
+     * @param pageSize 每个page的大小
+     * @param maxOrder 树的最大深度
+     * @param tinyCacheSize tiny 类型的内存块的缓存数量(队列长度)。默认为 512
+     * @param smallCacheSize small 类型的内存块的缓存数量(队列长度)。默认为 256
+     * @param normalCacheSize normal 类型的内存块的缓存数量(队列长度)。默认为 64
+     * @param useCacheForAllThreads 是否所有的线程都使用缓存 默认true
+     * @param directMemoryCacheAlignment 直接内存的对其量
+     */
     public PooledByteBufAllocator(boolean preferDirect, int nHeapArena, int nDirectArena, int pageSize, int maxOrder,
                                   int tinyCacheSize, int smallCacheSize, int normalCacheSize,
                                   boolean useCacheForAllThreads, int directMemoryCacheAlignment) {
         super(preferDirect);
+        //创建PoolThreadLocalCache对象
         threadCache = new PoolThreadLocalCache(useCacheForAllThreads);
         this.tinyCacheSize = tinyCacheSize;
         this.smallCacheSize = smallCacheSize;
@@ -377,6 +419,11 @@ public class PooledByteBufAllocator extends AbstractByteBufAllocator implements 
         return new PoolArena[size];
     }
 
+    /**
+     * 校验 pageSize 参数，并计算 pageShift 值
+     * @param pageSize
+     * @return
+     */
     private static int validateAndCalculatePageShifts(int pageSize) {
         if (pageSize < MIN_PAGE_SIZE) {
             throw new IllegalArgumentException("pageSize: " + pageSize + " (expected: " + MIN_PAGE_SIZE + ")");
@@ -391,6 +438,12 @@ public class PooledByteBufAllocator extends AbstractByteBufAllocator implements 
         return Integer.SIZE - 1 - Integer.numberOfLeadingZeros(pageSize);
     }
 
+    /**
+     * 校验 maxOrder 参数，并计算 chunkSize 值
+     * @param pageSize
+     * @param maxOrder
+     * @return
+     */
     private static int validateAndCalculateChunkSize(int pageSize, int maxOrder) {
         if (maxOrder > 14) {
             throw new IllegalArgumentException("maxOrder: " + maxOrder + " (expected: 0-14)");
@@ -410,18 +463,23 @@ public class PooledByteBufAllocator extends AbstractByteBufAllocator implements 
 
     @Override
     protected ByteBuf newHeapBuffer(int initialCapacity, int maxCapacity) {
+        // <1> 获得线程的 PoolThreadCache 对象
+        //这里的好处是给线程分配一个heapArena，该线程以后再分配就会在该heapArena 中分配，
+        //用来减少因为访问共享资源 而等待的时间
         PoolThreadCache cache = threadCache.get();
         PoolArena<byte[]> heapArena = cache.heapArena;
 
+        // <2.1> 从 heapArena 中，分配 Heap PooledByteBuf 对象，基于池化
         final ByteBuf buf;
         if (heapArena != null) {
             buf = heapArena.allocate(cache, initialCapacity, maxCapacity);
         } else {
+            // <2.2> 直接创建 Heap ByteBuf 对象，基于非池化(不知道什么情况会走到这里)
             buf = PlatformDependent.hasUnsafe() ?
                     new UnpooledUnsafeHeapByteBuf(this, initialCapacity, maxCapacity) :
                     new UnpooledHeapByteBuf(this, initialCapacity, maxCapacity);
         }
-
+        // <3> 将 ByteBuf 装饰成 LeakAware ( 可检测内存泄露 )的 ByteBuf 对象
         return toLeakAwareBuffer(buf);
     }
 
@@ -553,6 +611,10 @@ public class PooledByteBufAllocator extends AbstractByteBufAllocator implements 
                         DEFAULT_MAX_CACHED_BUFFER_CAPACITY, DEFAULT_CACHE_TRIM_INTERVAL);
 
                 if (DEFAULT_CACHE_TRIM_INTERVAL_MILLIS > 0) {
+                    //自己的理解
+                    // 要调用ThreadExecutorMap.apply() 存入一个executor才有用
+                    //而trimTask是清理executor的线程的cache，感觉没啥用，除非所有的分配内存的线程都是executor里面的
+                    //不关注
                     final EventExecutor executor = ThreadExecutorMap.currentExecutor();
                     if (executor != null) {
                         executor.scheduleAtFixedRate(trimTask, DEFAULT_CACHE_TRIM_INTERVAL_MILLIS,

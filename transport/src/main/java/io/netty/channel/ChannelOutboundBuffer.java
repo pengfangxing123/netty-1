@@ -102,6 +102,9 @@ public final class ChannelOutboundBuffer {
     private static final AtomicIntegerFieldUpdater<ChannelOutboundBuffer> UNWRITABLE_UPDATER =
             AtomicIntegerFieldUpdater.newUpdater(ChannelOutboundBuffer.class, "unwritable");
 
+    /**
+     * 是否不可写
+     */
     @SuppressWarnings("UnusedDeclaration")
     private volatile int unwritable;
 
@@ -144,14 +147,17 @@ public final class ChannelOutboundBuffer {
         // See https://github.com/netty/netty/issues/2577
         Entry entry = unflushedEntry;
         if (entry != null) {
+            // 若 flushedEntry 为空，赋值为 unflushedEntry ，用于记录第一个( 开始 ) flush 的 Entry
             if (flushedEntry == null) {
                 // there is no flushedEntry yet, so start with the entry
                 flushedEntry = entry;
             }
             do {
                 flushed ++;
+                // 设置 Promise 不可取消
                 if (!entry.promise.setUncancellable()) {
                     // Was cancelled so make sure we free up memory and notify about the freed bytes
+                    // 设置不可取消失败，减少 totalPending 计数
                     int pending = entry.cancel();
                     decrementPendingOutboundBytes(pending, false, true);
                 }
@@ -159,6 +165,7 @@ public final class ChannelOutboundBuffer {
             } while (entry != null);
 
             // All flushed so reset unflushedEntry
+            // 设置 unflushedEntry 为空，表示所有都 flush
             unflushedEntry = null;
         }
     }
@@ -194,8 +201,9 @@ public final class ChannelOutboundBuffer {
         if (size == 0) {
             return;
         }
-
+        //减少总量
         long newWriteBufferSize = TOTAL_PENDING_SIZE_UPDATER.addAndGet(this, -size);
+        //如果当前的总览小于最低水位量，设置可以
         if (notifyWritability && newWriteBufferSize < channel.config().getWriteBufferLowWaterMark()) {
             setWritable(invokeLater);
         }
@@ -324,6 +332,7 @@ public final class ChannelOutboundBuffer {
             // processed everything
             flushedEntry = null;
             if (e == tailEntry) {
+                //如果说已经发送的entry是tailEntry，那么表示没有后续的Entry节点了
                 tailEntry = null;
                 unflushedEntry = null;
             }
@@ -458,7 +467,7 @@ public final class ChannelOutboundBuffer {
                     int count = entry.count;
                     if (count == -1) {
                         //noinspection ConstantValueVariableUse
-                        //我们用到的UnpooledDirectByteBuf为1
+                        //我们用到的UnpooledDirectByteBuf等四种内存为1
                         entry.count = count = buf.nioBufferCount();
                     }
 
@@ -484,6 +493,7 @@ public final class ChannelOutboundBuffer {
                         // branch is not very likely to get hit very frequently.
                         nioBufferCount = nioBuffers(entry, buf, nioBuffers, nioBufferCount, maxCount);
                     }
+                    //如果数组等于maxCount
                     if (nioBufferCount == maxCount) {
                         break;
                     }
@@ -491,7 +501,9 @@ public final class ChannelOutboundBuffer {
             }
             entry = entry.next;
         }
+        //当前byteBuffer 数组长度
         this.nioBufferCount = nioBufferCount;
+        //当前bytebuffer数组 中字节数总和
         this.nioBufferSize = nioBufferSize;
 
         return nioBuffers;
@@ -620,8 +632,10 @@ public final class ChannelOutboundBuffer {
     private void setWritable(boolean invokeLater) {
         for (;;) {
             final int oldValue = unwritable;
+            //将newValue设置为0，表示可写
             final int newValue = oldValue & ~1;
             if (UNWRITABLE_UPDATER.compareAndSet(this, oldValue, newValue)) {
+                //如果原来不可以写，现在可写，根据条件(是否立即触发)触发fireChannelWritabilityChanged事件
                 if (oldValue != 0 && newValue == 0) {
                     fireChannelWritabilityChanged(invokeLater);
                 }
@@ -633,8 +647,10 @@ public final class ChannelOutboundBuffer {
     private void setUnwritable(boolean invokeLater) {
         for (;;) {
             final int oldValue = unwritable;
+            //将newValue设置为1，表示不可写
             final int newValue = oldValue | 1;
             if (UNWRITABLE_UPDATER.compareAndSet(this, oldValue, newValue)) {
+                //如果原来可以写，现在不可写，根据条件(是否立即触发)触发fireChannelWritabilityChanged事件
                 if (oldValue == 0 && newValue != 0) {
                     fireChannelWritabilityChanged(invokeLater);
                 }
@@ -688,6 +704,7 @@ public final class ChannelOutboundBuffer {
 
         try {
             inFail = true;
+            // 循环，移除所有已 flush 的 Entry 节点们
             for (;;) {
                 if (!remove0(cause, notify)) {
                     break;
@@ -832,6 +849,10 @@ public final class ChannelOutboundBuffer {
     }
 
     static final class  Entry {
+
+        /**
+         * Recycler 对象，用于重用 Entry 对象
+         */
         private static final Recycler<Entry> RECYCLER = new Recycler<Entry>() {
             @Override
             protected Entry newObject(Handle<Entry> handle) {
@@ -839,11 +860,34 @@ public final class ChannelOutboundBuffer {
             }
         };
 
+        /**
+         * Recycler 处理器
+         */
         private final Handle<Entry> handle;
+
+        /**
+         * 下一条 Entry
+         */
         Entry next;
+
+        /**
+         * 消息（数据）
+         */
         Object msg;
+
+        /**
+         * {@link #msg} 转化的 NIO ByteBuffer 数组
+         */
         ByteBuffer[] bufs;
+
+        /**
+         * {@link #msg} 转化的 NIO ByteBuffer 对象
+         */
         ByteBuffer buf;
+
+        /**
+         * Promise 对象
+         */
         ChannelPromise promise;
         /**
          * 已写入的字节数

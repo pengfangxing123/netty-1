@@ -293,11 +293,30 @@ public class PooledByteBufAllocatorTest extends AbstractByteBufAllocatorTest<Poo
         int numArenas = 11;
         final PooledByteBufAllocator allocator =
                 new PooledByteBufAllocator(numArenas, numArenas, 8192, 11);
-        allocator.newHeapBuffer(16, 1024);
+        new Thread(()->{
+            allocator.newHeapBuffer(4096, 16*1024);
+        }).start();
+        allocator.newHeapBuffer(4096, 16*1024);
+        allocator.newHeapBuffer(4096, 16*1024);
+        allocator.newHeapBuffer(4096, 16*1024);
         for(int i=0;i<70;i++){
             allocator.newHeapBuffer(16, 1024);
         }
 
+    }
+
+    /**
+     * 小于8k内存分配测试类
+     * @throws InterruptedException
+     */
+    @Test
+    public void testFreepfx() throws InterruptedException {
+        int numArenas = 11;
+        final PooledByteBufAllocator allocator =
+                new PooledByteBufAllocator(numArenas, numArenas, 8192, 11);
+        PooledByteBuf byteBuf = (PooledByteBuf) allocator.newHeapBuffer(4096, 16 * 1024);
+        byteBuf.deallocate();
+        allocator.newHeapBuffer(4096, 16 * 1024);
     }
 
     /**

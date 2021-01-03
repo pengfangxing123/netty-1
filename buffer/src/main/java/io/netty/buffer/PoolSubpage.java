@@ -16,6 +16,14 @@
 
 package io.netty.buffer;
 
+/**
+ * Jemalloc 算法将每个 Arena 切分成多个小块 Chunk
+ * 但是实际上，每个 Chunk 依然是相当大的内存块。
+ * 因为在 Jemalloc 建议为 4MB ，Netty 默认使用为 16MB 。
+ * 进一步提供提高内存分配效率并减少内存碎片，Jemalloc 算法将每个 Chunk 切分成多个小块 Page 。
+ * 一个典型的切分是将 Chunk 切分为 2048 块 Page ，Netty 也是如此，因此 Page 的大小为：16MB / 2048 = 8KB
+ * @param <T>
+ */
 final class PoolSubpage<T> implements PoolSubpageMetric {
     /**
      * 所属 PoolChunk 对象
@@ -81,7 +89,9 @@ final class PoolSubpage<T> implements PoolSubpageMetric {
     // TODO: Test if adding padding helps under contention
     //private long pad0, pad1, pad2, pad3, pad4, pad5, pad6, pad7;
 
-    /** Special constructor that creates a linked list head */
+    /** 特殊的构造方法 创建双向链表，头节点
+     * Special constructor that creates a linked list head
+     */
     PoolSubpage(int pageSize) {
         chunk = null;
         memoryMapIdx = -1;
@@ -92,11 +102,21 @@ final class PoolSubpage<T> implements PoolSubpageMetric {
     }
 
     PoolSubpage(PoolSubpage<T> head, PoolChunk<T> chunk, int memoryMapIdx, int runOffset, int pageSize, int elemSize) {
+        //初始化所属chunk的信息
         this.chunk = chunk;
+        //chunk中page的节点编号
         this.memoryMapIdx = memoryMapIdx;
+        //chunk中page的节点的偏移量
         this.runOffset = runOffset;
+        //chunk中page的大小
         this.pageSize = pageSize;
-        bitmap = new long[pageSize >>> 10]; // pageSize / 16 / 64
+        //根据page大小计算最多要多少个Long 来表示
+        //一个long 64位，subPage最小是16
+        //所以就是注释的pageSize / 16 / 64
+        // pageSize / 16 / 64
+        bitmap = new long[pageSize >>> 10];
+
+        //初始化
         init(head, elemSize);
     }
 
@@ -133,18 +153,24 @@ final class PoolSubpage<T> implements PoolSubpageMetric {
             return toHandle(0);
         }
 
+        //如果没有，或者已经被destroy
         if (numAvail == 0 || !doNotDestroy) {
             return -1;
         }
 
         // 获得下一个可用的 Subpage 在 bitmap 中的总体位置
         final int bitmapIdx = getNextAvail();
-        // 获得下一个可用的 Subpage 在 bitmap 中数组的位置，高6位
+        // 获得下一个可用的 Subpage 在 bitmap 中数组的位置，高6位(12位的高6位，可不是32位的高6位)
+        //因为bitmapIdx = bitMap中的位置 <<6 | 在 bitmap中数组元素 的第几 bits
         int q = bitmapIdx >>> 6;
         // 获得下一个可用的 Subpage 在 bitmap中数组元素 的第几 bits，低6位
         int r = bitmapIdx & 63;
         //判断bitmap[q]的值的第r位为0
-        //这个时候我们要把bitmap[q]的第r为置为1，所以判断的也是这个第r位，所以我们向右偏移r位就获得了该为的值
+        //这个时候我们要把bitmap[q]的第r为置为1，所以判断的也是这个第r位，所以我们向右偏移r位后第一位就是r位的值了
+        //用来&1 就可以判断是不是0
+
+        //这里的第r位实际上是第r+1位，因为findNextAvail0(int i, long bits)方法中r的取值范围是0~63
+        //所以这里是移动r位 让第r位到第1位
         //比如7的二进制是0111，我们要分配第4位，获取第四位的值的方法就是右移动4位
         assert (bitmap[q] >>> r & 1) == 0;
         //这里是更新bitmap[q]的值
@@ -248,6 +274,7 @@ final class PoolSubpage<T> implements PoolSubpageMetric {
             this.nextAvail = -1;
             return nextAvail;
         }
+        //没有找好，寻找下一个可分配的subpage位置
         return findNextAvail();
     }
 
@@ -279,11 +306,6 @@ final class PoolSubpage<T> implements PoolSubpageMetric {
      * @return
      */
     private int findNextAvail0(int i, long bits) {
-        //调试代码
-//        if(i>0){
-//            System.out.println("6666");
-//        }
-
         final int maxNumElems = this.maxNumElems;
         //i<<6=i*64;获取bitmap[i]，对应subpage的起始点
         final int baseVal = i << 6;

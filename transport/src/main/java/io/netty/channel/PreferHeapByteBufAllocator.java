@@ -22,6 +22,9 @@ import io.netty.util.internal.ObjectUtil;
 import io.netty.util.internal.UnstableApi;
 
 /**
+ * 倾向创建 Heap ByteBuf 的分配器。
+ * 也就是说，#buffer(...) 和 #ioBuffer(...) 和 #compositeBuffer(...) 方法，创建的都是 Heap ByteBuf 对象
+ * 就在调用buffer()通过持有的allocator，创建heapBuffer
  * Wraps another {@link ByteBufAllocator} and use heapbuffers everywhere except when a direct buffer is explicit
  * requested.
  */

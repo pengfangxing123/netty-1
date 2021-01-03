@@ -84,6 +84,14 @@ public class ReadTimeoutHandler extends IdleStateHandler {
         super(timeout, 0, 0, unit);
     }
 
+    /**
+     * 重新了父类的channelIdle方法
+     * 把通知空闲事件的 ctx.fireUserEventTriggered(evt)
+     * 变为了关闭channel的readTimedOut
+     * @param ctx
+     * @param evt
+     * @throws Exception
+     */
     @Override
     protected final void channelIdle(ChannelHandlerContext ctx, IdleStateEvent evt) throws Exception {
         assert evt.state() == IdleState.READER_IDLE;

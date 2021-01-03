@@ -36,11 +36,31 @@ import java.nio.channels.ScatteringByteChannel;
  */
 public class UnpooledDirectByteBuf extends AbstractReferenceCountedByteBuf {
 
+    /**
+     * ByteBuf 分配器对象
+     */
     private final ByteBufAllocator alloc;
 
+    /**
+     * 数据 ByteBuffer 对象
+     */
     ByteBuffer buffer; // accessed by UnpooledUnsafeNoCleanerDirectByteBuf.reallocateDirect()
+
+    /**
+     * 临时 ByteBuffer 对象
+     */
     private ByteBuffer tmpNioBuf;
+    /**
+     * 容量
+     */
     private int capacity;
+
+    /**
+     * 是否需要释放 <1>
+     *
+     * 如果 {@link #buffer} 从外部传入，则为True，表示这个由外部释放
+     * 即 {@link #UnpooledDirectByteBuf(ByteBufAllocator, ByteBuffer, int)} 构造方法。
+     */
     private boolean doNotFree;
 
     /**
@@ -50,6 +70,7 @@ public class UnpooledDirectByteBuf extends AbstractReferenceCountedByteBuf {
      * @param maxCapacity     the maximum capacity of the underlying direct buffer
      */
     public UnpooledDirectByteBuf(ByteBufAllocator alloc, int initialCapacity, int maxCapacity) {
+        // 设置最大容量
         super(maxCapacity);
         if (alloc == null) {
             throw new NullPointerException("alloc");
@@ -151,21 +172,28 @@ public class UnpooledDirectByteBuf extends AbstractReferenceCountedByteBuf {
         int writerIndex = writerIndex();
 
         int oldCapacity = capacity;
+        //扩容
         if (newCapacity > oldCapacity) {
             ByteBuffer oldBuffer = buffer;
+            // 创建新的 Direct ByteBuffer 对象
             ByteBuffer newBuffer = allocateDirect(newCapacity);
+            // 复制数据到新的 buffer 对象
             oldBuffer.position(0).limit(oldBuffer.capacity());
             newBuffer.position(0).limit(oldBuffer.capacity());
             newBuffer.put(oldBuffer);
+            // 因为读取和写入，使用 readerIndex 和 writerIndex ，所以没关系
+            //因为我们的读写指针是在byteBuf的，jdk newBuffer只是一个内存卡结构而已
             newBuffer.clear();
             setByteBuffer(newBuffer, true);
         } else if (newCapacity < oldCapacity) {
+            //缩容
             ByteBuffer oldBuffer = buffer;
             ByteBuffer newBuffer = allocateDirect(newCapacity);
             if (readerIndex < newCapacity) {
                 if (writerIndex > newCapacity) {
                     writerIndex(writerIndex = newCapacity);
                 }
+                // 复制数读数据到新的 buffer 对象
                 oldBuffer.position(readerIndex).limit(writerIndex);
                 newBuffer.position(readerIndex).limit(writerIndex);
                 newBuffer.put(oldBuffer);

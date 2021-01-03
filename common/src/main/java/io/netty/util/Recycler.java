@@ -154,9 +154,15 @@ public abstract class Recycler<T> {
 
     @SuppressWarnings("unchecked")
     public final T get() {
+        //每个线程的最大缓存量为0
         if (maxCapacityPerThread == 0) {
             return newObject((Handle<T>) NOOP_HANDLE);
         }
+        //每个线程有一个stack对象
+        //每个stack有一个自己的handlers数组，和一个WorkQueque链表，链表是其他线程创建的，每个线程创建一个
+        //WorkQueque里面有一个Link链表，没有link节点有一个Handler数组，容量为16
+
+        //我们回收是把handler(handler.value==entry)回收到stack
         Stack<T> stack = threadLocal.get();
         DefaultHandle<T> handle = stack.pop();
         if (handle == null) {
@@ -364,6 +370,11 @@ public abstract class Recycler<T> {
                 writeIndex = tail.get();
             }
             tail.elements[writeIndex] = handle;
+            /**
+             * 如果使用者在将DefaultHandle对象压入队列后，
+             * 不将Stack设置为null，那么此处的DefaultHandle是持有stack的强引用的，则Stack对象无法回收；
+             * 而且由于此处DefaultHandle是持有stack的强引用，WeakHashMap中对应stack的WeakOrderQueue也无法被回收掉了，导致内存泄漏。
+             */
             handle.stack = null;
             // we lazy set to ensure that setting stack to null appears before we unnull it in the owning thread;
             // this also means we guarantee visibility of an element in the queue if we see the index updated
@@ -421,6 +432,7 @@ public abstract class Recycler<T> {
                         // Drop the object.
                         continue;
                     }
+                    //放到workQueue的handler，stack的引用防止内存泄漏，在放入的时候去掉了
                     element.stack = dst;
                     dstElems[newDstSize ++] = element;
                 }
@@ -619,12 +631,22 @@ public abstract class Recycler<T> {
         }
 
         private void pushLater(DefaultHandle<?> item, Thread thread) {
+            /**
+             * Recycler有1个stack->WeakOrderQueue映射，每个stack会映射到1个WeakOrderQueue，
+             * 这个WeakOrderQueue是该stack关联的其它线程WeakOrderQueue链表的head WeakOrderQueue。
+             * 当其它线程回收对象到该stack时会创建1个WeakOrderQueue中并加到stack的WeakOrderQueue链表中。
+             */
             // we don't want to have a ref to the queue as the value in our weak map
             // so we null it out; to ensure there are no races with restoring it later
             // we impose a memory ordering here (no-op on x86)
+            //获取当前线程的 stack : weakOrderQueue
             Map<Stack<?>, WeakOrderQueue> delayedRecycled = DELAYED_RECYCLED.get();
+
+            //从stack : weakOrderQueue 表中获取当前stack的weakOrderQueue
+            //因为当前线程可以回收多个stack
             WeakOrderQueue queue = delayedRecycled.get(this);
             if (queue == null) {
+                //如果当前线程回收的stack数量已经超过了maxDelayedQueues，则放入一个空的WeakOrderQueue
                 if (delayedRecycled.size() >= maxDelayedQueues) {
                     // Add a dummy queue so we know we should drop the object
                     delayedRecycled.put(this, WeakOrderQueue.DUMMY);
@@ -647,6 +669,7 @@ public abstract class Recycler<T> {
         boolean dropHandle(DefaultHandle<?> handle) {
             if (!handle.hasBeenRecycled) {
                 if ((++handleRecycleCount & ratioMask) != 0) {
+                    //ratioMask默认为8 ，即默认每8个对象，允许回收一次，直接扔掉7个，可以让recycler的容量缓慢的增大，避免爆发式的请
                     // Drop the object.
                     return true;
                 }

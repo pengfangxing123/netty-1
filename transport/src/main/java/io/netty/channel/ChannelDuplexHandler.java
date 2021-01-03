@@ -20,6 +20,8 @@ import io.netty.channel.ChannelHandlerMask.Skip;
 import java.net.SocketAddress;
 
 /**
+ *  实际上就时继承ChannelOutboundHandlerAdapter和ChannelInboundHandlerAdapter
+ * 因为 Java 不支持多继承的特性，所以不得又重新实现了一遍ChannelOutboundHandler
  * {@link ChannelHandler} implementation which represents a combination out of a {@link ChannelInboundHandler} and
  * the {@link ChannelOutboundHandler}.
  *

@@ -25,6 +25,9 @@ import java.nio.ByteOrder;
 
 abstract class PooledByteBuf<T> extends AbstractReferenceCountedByteBuf {
 
+    /**
+     * Recycler 处理器，用于回收对象
+     */
     private final Recycler.Handle<PooledByteBuf<T>> recyclerHandle;
 
     /**
@@ -54,7 +57,7 @@ abstract class PooledByteBuf<T> extends AbstractReferenceCountedByteBuf {
     protected int length;
 
     /**
-     * 但是，要注意的是，maxLength 属性，不是表示最大容量。maxCapacity 属性，才是真正表示最大容量。
+     * 要注意的是，maxLength 属性，不是表示最大容量。maxCapacity 属性，才是真正表示最大容量。
      * 那么，maxLength 属性有什么用？表示占用 memory 的最大容量( 而不是 PooledByteBuf 对象的最大容量 )。
      * 在写入数据超过 maxLength 容量时，会进行扩容，但是容量的上限，为 maxCapacity
      */
@@ -74,17 +77,38 @@ abstract class PooledByteBuf<T> extends AbstractReferenceCountedByteBuf {
      */
     private ByteBufAllocator allocator;
 
+    /**
+     * 池化的 PooledByteBuf 刚new 出来时是没有分配内存的，得allocator调用了init方法后才完成可使用得内存分配
+     * @param recyclerHandle
+     * @param maxCapacity
+     */
     @SuppressWarnings("unchecked")
     protected PooledByteBuf(Recycler.Handle<? extends PooledByteBuf<T>> recyclerHandle, int maxCapacity) {
         super(maxCapacity);
         this.recyclerHandle = (Handle<PooledByteBuf<T>>) recyclerHandle;
     }
 
+    /**
+     * 基于 Poolooled 的 PoolChunk 对象
+     * 池化的 PooledByteBuf 刚new 出来时是没有分配内存的，得allocator调用了init方法后才完成可使用得内存分配
+     * @param chunk
+     * @param nioBuffer
+     * @param handle
+     * @param offset
+     * @param length
+     * @param maxLength
+     * @param cache
+     */
     void init(PoolChunk<T> chunk, ByteBuffer nioBuffer,
               long handle, int offset, int length, int maxLength, PoolThreadCache cache) {
         init0(chunk, nioBuffer, handle, offset, length, maxLength, cache);
     }
 
+    /**
+     * 基于 unPoolooled 的 PoolChunk 对象调用
+     * @param chunk
+     * @param length
+     */
     void initUnpooled(PoolChunk<T> chunk, int length) {
         init0(chunk, null, 0, chunk.offset, length, length, null);
     }
@@ -106,12 +130,13 @@ abstract class PooledByteBuf<T> extends AbstractReferenceCountedByteBuf {
     }
 
     /**
+     * 每次在重用 PooledByteBuf 对象时，需要调用该方法，重置属性
      * Method must be called before reuse this {@link PooledByteBufAllocator}
      */
     final void reuse(int maxCapacity) {
         // 设置最大容量
         maxCapacity(maxCapacity);
-        // 设置引用数量为 0
+        // 设置引用数量为 0(好像是2)
         resetRefCnt();
         // 重置读写索引为 0
         setIndex0(0, 0);
@@ -131,32 +156,40 @@ abstract class PooledByteBuf<T> extends AbstractReferenceCountedByteBuf {
 
     @Override
     public final ByteBuf capacity(int newCapacity) {
+        // 校验新的容量，不能超过最大容量
         checkNewCapacity(newCapacity);
 
         // If the request capacity does not require reallocation, just update the length of the memory.
         if (chunk.unpooled) {
+            // Chunk 内存，非池化
+            // 相等，无需扩容 / 缩容
             if (newCapacity == length) {
                 return this;
             }
         } else {
+            // 扩容
             if (newCapacity > length) {
+                //如果小于等于maxLength，
                 if (newCapacity <= maxLength) {
                     length = newCapacity;
                     return this;
                 }
+            // 缩容
             } else if (newCapacity < length) {
-                //新容量小于当前容量，但是不到 memory 最大容量的一半，因为缩容相对释放不多，无需进行缩容
+                //新容量小于当前容量，但是大于 memory 最大容量的一半，有下面两种情况，无需进行缩容
                 if (newCapacity > maxLength >>> 1) {
                     if (maxLength <= 512) {
                         //这里也不通过会缩容
                         if (newCapacity > maxLength - 16) {
-                            //因为 Netty SubPage 最小是 16 ，如果小于等 16 ，无法重置读写位置。
+                            //因为 Netty SubPage 大小是以16递增的。如果目前块的容量maxLength -16 小于目标容量newCapacity，
+                            //就不满足容量要求了，所以不去调整内存分配信息
                             length = newCapacity;
                             // 设置读写索引，避免超过最大容量
                             setIndex(Math.min(readerIndex(), newCapacity), Math.min(writerIndex(), newCapacity));
                             return this;
                         }
                     } else { // > 512 (i.e. >= 1024)
+                        //大于512也不重新调整内存分配信息
                         length = newCapacity;
                         setIndex(Math.min(readerIndex(), newCapacity), Math.min(writerIndex(), newCapacity));
                         return this;
@@ -191,11 +224,21 @@ abstract class PooledByteBuf<T> extends AbstractReferenceCountedByteBuf {
         return null;
     }
 
+    /**
+     * 全部复制，有底层数据Byte数组共享
+     * 浅拷贝
+     * @return
+     */
     @Override
     public final ByteBuf retainedDuplicate() {
         return PooledDuplicatedByteBuf.newInstance(this, this, readerIndex(), writerIndex());
     }
 
+    /**
+     * 复制index~写指针的位置(index起的可读部分)有底层数据Byte数组共享
+     * 浅拷贝
+     * @return
+     */
     @Override
     public final ByteBuf retainedSlice() {
         final int index = readerIndex();
@@ -217,6 +260,9 @@ abstract class PooledByteBuf<T> extends AbstractReferenceCountedByteBuf {
 
     protected abstract ByteBuffer newInternalNioBuffer(T memory);
 
+    /**
+     * 当引用计数为 0 时，调用该方法，进行内存回收
+     */
     @Override
     protected final void deallocate() {
         if (handle >= 0) {
@@ -234,6 +280,11 @@ abstract class PooledByteBuf<T> extends AbstractReferenceCountedByteBuf {
         recyclerHandle.recycle(this);
     }
 
+    /**
+     * 因为是大块里面的 内存 所以要加一个偏移量offset
+     * @param index
+     * @return
+     */
     protected final int idx(int index) {
         return offset + index;
     }

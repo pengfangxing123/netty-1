@@ -27,24 +27,55 @@ import java.util.concurrent.atomic.AtomicLong;
 
 @SuppressWarnings("ComparableImplementedButEqualsNotOverridden")
 final class ScheduledFutureTask<V> extends PromiseTask<V> implements ScheduledFuture<V>, PriorityQueueNode {
+    /**
+     * 任务序号生成器，通过 AtomicLong 实现递增发号
+     */
     private static final AtomicLong nextTaskId = new AtomicLong();
+
+    /**
+     * 定时任务时间起点
+     */
     private static final long START_TIME = System.nanoTime();
 
     static long nanoTime() {
         return System.nanoTime() - START_TIME;
     }
 
+    /**
+     * @param delay 延迟时长，单位：纳秒
+     * @return 获得任务执行时间，也是相对 {@link #START_TIME} 来算的。
+     *          实际上，返回的结果，会用于 {@link #deadlineNanos} 字段
+     */
     static long deadlineNanos(long delay) {
         long deadlineNanos = nanoTime() + delay;
         // Guard against overflow
         return deadlineNanos < 0 ? Long.MAX_VALUE : deadlineNanos;
     }
 
+    /**
+     * 任务编号
+     */
     private final long id = nextTaskId.getAndIncrement();
+
+    /**
+     * 任务执行时间，即到了该时间，该任务就会被执行
+     */
     private long deadlineNanos;
     /* 0 - no repeat, >0 - repeat at fixed rate, <0 - repeat with fixed delay */
+    /**
+     * 任务执行周期
+     *
+     * =0 - 只执行一次
+     * >0 - 按照计划执行时间计算 fixrate
+     * <0 - 按照实际执行时间计算 fixdelay
+     *
+     * 推荐阅读文章 https://blog.csdn.net/gtuu0123/article/details/6040159
+     */
     private final long periodNanos;
 
+    /**
+     * 队列编号
+     */
     private int queueIndex = INDEX_NOT_IN_QUEUE;
 
     ScheduledFutureTask(

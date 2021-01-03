@@ -86,6 +86,7 @@ public class KQueueServerChannelConfig extends KQueueChannelConfig implements Se
         }
     }
 
+    @Override
     public KQueueServerChannelConfig setReuseAddress(boolean reuseAddress) {
         try {
             ((AbstractKQueueChannel) channel).socket.setReuseAddress(reuseAddress);
@@ -95,6 +96,7 @@ public class KQueueServerChannelConfig extends KQueueChannelConfig implements Se
         }
     }
 
+    @Override
     public int getReceiveBufferSize() {
         try {
             return ((AbstractKQueueChannel) channel).socket.getReceiveBufferSize();

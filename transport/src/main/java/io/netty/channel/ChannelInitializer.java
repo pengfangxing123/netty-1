@@ -56,6 +56,10 @@ public abstract class ChannelInitializer<C extends Channel> extends ChannelInbou
     private static final InternalLogger logger = InternalLoggerFactory.getInstance(ChannelInitializer.class);
     // We use a Set as a ChannelInitializer is usually shared between all Channels in a Bootstrap /
     // ServerBootstrap. This way we can reduce the memory usage compared to use Attributes.
+    /**
+     * 由于 ChannelInitializer 可以在 Bootstrap/ServerBootstrap 的所有通道中共享，所以我们用一个 ConcurrentMap 作为初始化器。
+     * 这种方式，相对于使用 {@link io.netty.util.Attribute} 方式，减少了内存的使用。
+     */
     private final Set<ChannelHandlerContext> initMap = Collections.newSetFromMap(
             new ConcurrentHashMap<ChannelHandlerContext, Boolean>());
 
@@ -70,11 +74,15 @@ public abstract class ChannelInitializer<C extends Channel> extends ChannelInbou
      */
     protected abstract void initChannel(C ch) throws Exception;
 
+
     @Override
     @SuppressWarnings("unchecked")
     public final void channelRegistered(ChannelHandlerContext ctx) throws Exception {
         // Normally this method will never be called as handlerAdded(...) should call initChannel(...) and remove
         // the handler.
+        //这里也会调用initChannel，但是整个channelRegistered都不会执行，因为channel注册后，
+        // 是先调用pipeline.invokeHandlerAddedIfNeeded 再调用pipeline.channelRegistered
+        //在调用pipeline.invokeHandlerAddedIfNeeded 就会执行initChannel，而且执行完后会将ChannelInitializer移除
         if (initChannel(ctx)) {
             // we called initChannel(...) so we need to call now pipeline.fireChannelRegistered() to ensure we not
             // miss an event.
@@ -89,6 +97,8 @@ public abstract class ChannelInitializer<C extends Channel> extends ChannelInbou
     }
 
     /**
+     * 关闭 Channel 通道。因为，初始化 Channel 通道发生异常，意味着很大可能，无法正常处理该 Channel 后续的读写事件。
+     * 这里不会影响我们通信的时候异常，因为调用完initChannel 后，ChannelInitializer就从Pipeline调用链中移除了
      * Handle the {@link Throwable} by logging and closing the {@link Channel}. Sub-classes may override this.
      */
     @Override
@@ -122,16 +132,22 @@ public abstract class ChannelInitializer<C extends Channel> extends ChannelInbou
         initMap.remove(ctx);
     }
 
+
     @SuppressWarnings("unchecked")
     private boolean initChannel(ChannelHandlerContext ctx) throws Exception {
+        //这里添加到initMap，是防止并发问题
         if (initMap.add(ctx)) { // Guard against re-entrance.
             try {
+                // 初始化通道
+                // 就是调用我们内部类重写的initChannel方法
                 initChannel((C) ctx.channel());
             } catch (Throwable cause) {
+                // 发生异常时，执行异常处理
                 // Explicitly call exceptionCaught(...) as we removed the handler before calling initChannel(...).
                 // We do so to prevent multiple calls to initChannel(...).
                 exceptionCaught(ctx, cause);
             } finally {
+                // 从 pipeline 移除 ChannelInitializer
                 ChannelPipeline pipeline = ctx.pipeline();
                 if (pipeline.context(this) != null) {
                     pipeline.remove(this);

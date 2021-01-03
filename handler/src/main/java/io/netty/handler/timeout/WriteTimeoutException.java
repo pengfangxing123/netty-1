@@ -18,6 +18,7 @@ package io.netty.handler.timeout;
 import io.netty.util.internal.PlatformDependent;
 
 /**
+ * 继承 TimeoutException 类，写超时( 空闲 )异常
  * A {@link TimeoutException} raised by {@link WriteTimeoutHandler} when no data
  * was written within a certain period of time.
  */

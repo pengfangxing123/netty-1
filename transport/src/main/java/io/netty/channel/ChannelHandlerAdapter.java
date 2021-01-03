@@ -26,6 +26,10 @@ import java.util.Map;
  */
 public abstract class ChannelHandlerAdapter implements ChannelHandler {
 
+    /**
+     * 调用addXXX添加Handler到pipeline调用链中时会将这个 置为true，表示已经添加过了
+     * 配合isSharable() 来控制，handler对象是否可以重复使用
+     */
     // Not using volatile because it's used only for a sanity check.
     boolean added;
 
